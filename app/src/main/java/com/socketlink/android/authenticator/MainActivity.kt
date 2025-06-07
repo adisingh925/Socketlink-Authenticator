@@ -63,6 +63,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.rememberDismissState
 import androidx.compose.material3.Button
@@ -260,7 +261,7 @@ class MainActivity : ComponentActivity() {
                                             shape = RoundedCornerShape(12.dp)
                                         ) {
                                             Icon(
-                                                Icons.Default.Edit,
+                                                Icons.Default.Keyboard,
                                                 contentDescription = "Add OTP Manually"
                                             )
                                         }
