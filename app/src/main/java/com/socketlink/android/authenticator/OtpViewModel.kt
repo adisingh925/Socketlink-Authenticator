@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 
 /**
  * ViewModel to manage OTP entries and their progress for TOTP codes.
@@ -39,12 +40,6 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     val progressMap: StateFlow<Map<String, Float>> = _progressMap
 
     /**
-     * Time period (in seconds) for each OTP code validity.
-     * Typically 30 seconds for TOTP.
-     */
-    private val period = 30
-
-    /**
      * Initialization block to load OTP secrets, update OTP codes immediately,
      * and start the periodic ticker for progress and code updates.
      */
@@ -72,7 +67,8 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                 secret = it.secret,
                 code = "", // Will be generated next
                 digits = it.digits,
-                algorithm = it.algorithm
+                algorithm = it.algorithm,
+                period = it.period
             )
         }
     }
@@ -83,7 +79,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun updateOtpCodes() {
         _otpEntries.value = _otpEntries.value.map { otp ->
-            otp.copy(code = OtpUtils.generateOtp(otp.secret, otp.digits, otp.algorithm))
+            otp.copy(code = OtpUtils.generateOtp(otp.secret, otp.digits, otp.algorithm, otp.period))
         }
     }
 
@@ -98,63 +94,38 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun startTicker() {
         viewModelScope.launch {
-            /**
-             * Holds the elapsed time in the last tick to detect period boundary wrap-around.
-             * Initialized to a very large value so first tick always triggers an update.
-             */
-            var lastElapsedInPeriod = Long.MAX_VALUE
+            val lastPeriodMap = mutableMapOf<String, Long>()
 
             while (true) {
-                /** Current system time in milliseconds */
                 val now = System.currentTimeMillis()
 
-                /** OTP code validity period in milliseconds (e.g., 30 seconds) */
-                val periodMillis = period * 1000L
+                val updatedCodes = _otpEntries.value.map { otp ->
+                    val periodMillis = otp.period * 1000L
+                    val currentPeriod = now / periodMillis
+                    val lastPeriod = lastPeriodMap[otp.id] ?: -1L
 
-                /**
-                 * Calculate elapsed time within the current period
-                 * This resets to 0 every time a new period starts
-                 */
-                val elapsedInPeriod = now % periodMillis
-
-                /**
-                 * Calculate the progress as fraction of remaining time in current period,
-                 * ranges from 1.0 (just started) to 0.0 (just about to reset)
-                 */
-                val progress = 1f - elapsedInPeriod.toFloat() / periodMillis
-
-                /**
-                 * Detect a new period boundary by checking if elapsed time has wrapped around
-                 * This happens when elapsedInPeriod < lastElapsedInPeriod, indicating reset
-                 */
-                if (elapsedInPeriod < lastElapsedInPeriod) {
-                    /**
-                     * New period started: regenerate OTP codes for all entries
-                     * Updates _otpEntries StateFlow with new codes
-                     */
-                    val updatedCodes = _otpEntries.value.map { otp ->
-                        otp.copy(code = OtpUtils.generateOtp(otp.secret, otp.digits, otp.algorithm))
+                    val newCode = if (currentPeriod != lastPeriod) {
+                        OtpUtils.generateOtp(otp.secret, otp.digits, otp.algorithm, otp.period)
+                    } else {
+                        otp.code
                     }
-                    _otpEntries.value = updatedCodes
+
+                    lastPeriodMap[otp.id] = currentPeriod
+
+                    otp.copy(code = newCode)
                 }
 
-                /** Update last elapsed time to current for next iteration */
-                lastElapsedInPeriod = elapsedInPeriod
+                _otpEntries.value = updatedCodes
 
-                /**
-                 * Create a new map of progress values for each OTP entry
-                 * The key is a unique identifier combining accountName and issuer
-                 */
-                val newProgressMap = _otpEntries.value.associate { otp ->
+                val newProgressMap = updatedCodes.associate { otp ->
+                    val periodMillis = otp.period * 1000L
+                    val elapsedInPeriod = now % periodMillis
+                    val progress = 1f - elapsedInPeriod.toFloat() / periodMillis
                     otp.id to progress.coerceIn(0f, 1f)
                 }
-                /** Update the progress StateFlow */
+
                 _progressMap.value = newProgressMap
 
-                /**
-                 * Suspend the coroutine for 10 milliseconds to
-                 * allow smooth animation and frequent OTP boundary checks
-                 */
                 delay(10L)
             }
         }
@@ -166,11 +137,18 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
      *
      * @param secret The new OTP secret to add.
      */
-    fun addSecret(secret: OtpEntry) {
-        val all = OtpStorage.loadOtpList(getApplication()) + secret
-        OtpStorage.saveOtpList(getApplication(), all)
-        loadOtpEntries()
-        updateOtpCodes()
+    suspend fun addSecret(secret: OtpEntry) {
+        // Save the updated list in the background
+        withContext(Dispatchers.IO) {
+            val all = OtpStorage.loadOtpList(getApplication()) + secret
+            OtpStorage.saveOtpList(getApplication(), all)
+        }
+
+        // Update codes only if needed
+        withContext(Dispatchers.Main) {
+            _otpEntries.value = _otpEntries.value + secret
+            updateOtpCodes()
+        }
     }
 
     fun deleteSecret(otpToDelete: OtpEntry) {

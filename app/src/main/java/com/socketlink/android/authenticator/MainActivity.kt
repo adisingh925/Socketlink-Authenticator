@@ -20,7 +20,6 @@ import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -69,7 +68,10 @@ import androidx.compose.material.rememberDismissState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -105,7 +107,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -147,16 +148,6 @@ class MainActivity : ComponentActivity() {
 
                 /** Coroutine scope for launching suspend functions */
                 val coroutineScope = rememberCoroutineScope()
-
-                val slideAnimationSpec = tween<IntOffset>(
-                    durationMillis = 500,
-                    easing = LinearOutSlowInEasing
-                )
-
-                val fadeAnimationSpec = tween<Float>(
-                    durationMillis = 500,
-                    easing = LinearOutSlowInEasing
-                )
 
                 Box(
                     modifier = Modifier
@@ -288,18 +279,23 @@ class MainActivity : ComponentActivity() {
 
                         /** Add OTP screen */
                         composable("add") {
+                            val coroutineScope = rememberCoroutineScope()
+
                             AddOtpScreen(
                                 onAdd = { codeName, secret, digits, algorithm, period ->
-                                    otpViewModel.addSecret(
-                                        OtpEntry(
-                                            codeName = codeName,
-                                            secret = secret,
-                                            code = "",
-                                            digits = digits,
-                                            algorithm = algorithm,
-                                            period = period
+                                    coroutineScope.launch {
+                                        otpViewModel.addSecret(
+                                            OtpEntry(
+                                                codeName = codeName,
+                                                secret = secret,
+                                                code = "",
+                                                digits = digits,
+                                                algorithm = algorithm,
+                                                period = period
+                                            )
                                         )
-                                    )
+                                    }
+
                                     navController.popBackStack()
                                 },
                                 onCancel = { navController.popBackStack() }
@@ -591,7 +587,7 @@ fun AddOtpScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Enter OTP details") },
+                title = { Text("Enter details") },
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -617,11 +613,12 @@ fun AddOtpScreen(
             OutlinedTextField(
                 value = codeName,
                 onValueChange = { codeName = it },
-                label = { Text("Code Name*") },
+                label = { Text("Code Name") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                 modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),  // <-- added rounded corners here
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.05f)
@@ -631,7 +628,8 @@ fun AddOtpScreen(
             OutlinedTextField(
                 value = secret,
                 onValueChange = { secret = it },
-                label = { Text("Secret Key*") },
+                label = { Text("Secret Key") },
+                shape = RoundedCornerShape(12.dp),  // <-- added rounded corners here
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
@@ -673,27 +671,101 @@ fun AddOtpScreen(
 
             AnimatedVisibility(visible = showAdvanced) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    OutlinedTextField(
-                        value = digits,
-                        onValueChange = { digits = it },
-                        label = { Text("Digits*") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    var digitsExpanded by remember { mutableStateOf(false) }
+                    val digitOptions = listOf("6", "8")
 
-                    OutlinedTextField(
-                        value = algorithm,
-                        onValueChange = { algorithm = it },
-                        label = { Text("Algorithm*") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    ExposedDropdownMenuBox(
+                        expanded = digitsExpanded,
+                        onExpandedChange = { digitsExpanded = !digitsExpanded }
+                    ) {
+                        OutlinedTextField(
+                            readOnly = true,
+                            value = digits,
+                            shape = RoundedCornerShape(12.dp),  // <-- added rounded corners here
+                            onValueChange = {},
+                            label = { Text("Digits") },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = digitsExpanded)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(), // required for proper menu alignment
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                    alpha = 0.1f
+                                ),
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                    alpha = 0.05f
+                                )
+                            )
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = digitsExpanded,
+                            onDismissRequest = { digitsExpanded = false }
+                        ) {
+                            digitOptions.forEach { selectionOption ->
+                                DropdownMenuItem(
+                                    text = { Text(selectionOption) },
+                                    onClick = {
+                                        digits = selectionOption
+                                        digitsExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    val algorithmOptions = listOf("SHA1", "SHA256", "SHA512")
+                    var algorithmExpanded by remember { mutableStateOf(false) }
+
+                    ExposedDropdownMenuBox(
+                        expanded = algorithmExpanded,
+                        onExpandedChange = { algorithmExpanded = !algorithmExpanded }
+                    ) {
+                        OutlinedTextField(
+                            readOnly = true,
+                            value = algorithm,
+                            shape = RoundedCornerShape(12.dp),  // <-- added rounded corners here
+                            onValueChange = {},
+                            label = { Text("Algorithm") },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = algorithmExpanded)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(), // Required for alignment
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                    alpha = 0.1f
+                                ),
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                    alpha = 0.05f
+                                )
+                            )
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = algorithmExpanded,
+                            onDismissRequest = { algorithmExpanded = false }
+                        ) {
+                            algorithmOptions.forEach { selectionOption ->
+                                DropdownMenuItem(
+                                    text = { Text(selectionOption) },
+                                    onClick = {
+                                        algorithm = selectionOption
+                                        algorithmExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
 
                     OutlinedTextField(
                         value = period,
                         onValueChange = { period = it },
                         label = { Text("Valid Period* (seconds)") },
+                        shape = RoundedCornerShape(12.dp),  // <-- added rounded corners here
                         singleLine = true,
                         keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
@@ -709,7 +781,13 @@ fun AddOtpScreen(
                 Button(
                     onClick = {
                         if (canAdd) {
-                            onAdd(codeName.trim(), secret.trim(), digits.toInt(), algorithm.trim(), period.toInt())
+                            onAdd(
+                                codeName.trim(),
+                                secret.trim(),
+                                digits.toInt(),
+                                algorithm.trim(),
+                                period.toInt()
+                            )
                             focusManager.clearFocus()
                         }
                     },

@@ -2,7 +2,6 @@ package com.socketlink.android.authenticator
 
 import android.util.Log
 import androidx.core.net.toUri
-import com.warrenstrange.googleauth.GoogleAuthenticator
 import org.apache.commons.codec.binary.Base32
 import java.nio.ByteBuffer
 import javax.crypto.Mac
@@ -10,24 +9,12 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.math.pow
 
 object OtpUtils {
-//    fun generateOtp(secret: String): String {
-//        val gAuth = GoogleAuthenticator()
-//
-//        return try {
-//            val code = gAuth.getTotpPassword(secret)
-//            // Format with leading zeros to 6 digits
-//            val codeStr = code.toString().padStart(6, '0')
-//            return codeStr
-//        } catch (e: Exception) {
-//            "Invalid Secret"
-//        }
-//    }
 
-    fun generateOtp(secret: String, digits: Int = 6, algorithm: String = "SHA1"): String {
+    fun generateOtp(secret: String, digits: Int = 6, algorithm: String = "SHA1", period : Int): String {
         return try {
             val secretBytes = Base32().decode(secret)// Base32 decoding (standard in OTP secrets)
 
-            val time = System.currentTimeMillis() / 1000 / 30
+            val time = System.currentTimeMillis() / 1000 / period
             val data = ByteBuffer.allocate(8).putLong(time).array()
 
             val algo = when (algorithm.uppercase()) {
