@@ -482,8 +482,7 @@ fun OtpCard(
     }
 
     Card(
-        modifier = modifier
-            .fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -502,7 +501,8 @@ fun OtpCard(
                     onClick = {
                         val codeWithoutSpaces = otp.code.replace(" ", "")
                         clipboardManager.setText(AnnotatedString(codeWithoutSpaces))
-                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Code copied to clipboard", Toast.LENGTH_SHORT)
+                            .show()
                     }
                 )
                 .fillMaxWidth()
@@ -516,18 +516,37 @@ fun OtpCard(
                     text = codeName,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
                 )
+
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = otp.algorithm.uppercase(),
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Medium
+                        ),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
 
             Spacer(Modifier.height(8.dp))
 
             val fontSize = MaterialTheme.typography.headlineMedium.fontSize * 1.2f
+            val code = otp.code
+            val splitIndex = code.length / 2
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val code = otp.code
-                val splitIndex = code.length / 2
-
                 Text(
                     text = code.substring(0, splitIndex),
                     style = MaterialTheme.typography.headlineMedium.copy(
