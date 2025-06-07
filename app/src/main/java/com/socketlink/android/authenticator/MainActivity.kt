@@ -150,6 +150,15 @@ class MainActivity : ComponentActivity() {
                 /** Coroutine scope for launching suspend functions */
                 val coroutineScope = rememberCoroutineScope()
 
+                var cameraButtonClicked by remember { mutableStateOf(false) }
+
+                LaunchedEffect(cameraPermissionState.status.isGranted, cameraButtonClicked) {
+                    if (cameraButtonClicked && cameraPermissionState.status.isGranted) {
+                        cameraButtonClicked = false
+                        navController.navigate("scanner")
+                    }
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -226,10 +235,12 @@ class MainActivity : ComponentActivity() {
                                         /** Camera scan FAB with streamlined permission logic */
                                         FloatingActionButton(
                                             onClick = {
+                                                cameraButtonClicked = true
+
                                                 when {
-                                                    cameraPermissionState.status.isGranted -> navController.navigate(
-                                                        "scanner"
-                                                    )
+                                                    cameraPermissionState.status.isGranted -> {
+                                                        /** do not navigate here */
+                                                    }
 
                                                     cameraPermissionState.status.shouldShowRationale -> {
                                                         coroutineScope.launch {
