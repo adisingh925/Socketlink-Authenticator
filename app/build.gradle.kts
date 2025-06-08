@@ -12,7 +12,7 @@ android {
         applicationId = "com.socketlink.android.authenticator"
         minSdk = 24
         targetSdk = 35
-        versionCode = 3
+        versionCode = 4
         versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -88,7 +88,7 @@ dependencies {
     implementation(libs.androidx.biometric)
 
     // DataStore
-    implementation("androidx.datastore:datastore-preferences:1.1.7")
+    implementation(libs.androidx.datastore.preferences)
     // Tink for encryption
     implementation(libs.tink.android)
 
