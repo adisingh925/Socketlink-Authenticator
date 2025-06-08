@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.camera.core.CameraControl
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -27,9 +28,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -42,12 +45,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -63,6 +68,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FlashlightOff
+import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.rememberDismissState
@@ -91,16 +98,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -108,6 +121,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -327,7 +341,6 @@ class MainActivity : ComponentActivity() {
                                 LaunchedEffect(code) {
                                     parseOtpAuthUri(code)?.let { otpSecret ->
                                         otpViewModel.addSecret(otpSecret)
-                                        delay(300)
                                         navController.popBackStack()
                                     }
                                 }
@@ -645,11 +658,11 @@ fun AddOtpScreen(
                 value = codeName,
                 onValueChange = { codeName = it },
                 label = { Text("Code Name") },
-                singleLine = true,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),  // <-- added rounded corners here
+                shape = RoundedCornerShape(12.dp),
+                maxLines = 3, // Allow up to 3 lines
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.05f)
@@ -660,11 +673,11 @@ fun AddOtpScreen(
                 value = secret,
                 onValueChange = { secret = it },
                 label = { Text("Secret Key") },
-                shape = RoundedCornerShape(12.dp),  // <-- added rounded corners here
-                singleLine = true,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                 modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                maxLines = 3, // Allow up to 3 lines
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.05f)
@@ -792,15 +805,40 @@ fun AddOtpScreen(
                         }
                     }
 
-                    OutlinedTextField(
-                        value = period,
-                        onValueChange = { period = it },
-                        label = { Text("Valid Period* (seconds)") },
-                        shape = RoundedCornerShape(12.dp),  // <-- added rounded corners here
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    val options = listOf(10, 20, 30, 45, 60, 90, 120)
+                    var expanded by remember { mutableStateOf(false) }
+
+                    ExposedDropdownMenuBox(
+                        expanded = expanded,
+                        onExpandedChange = { expanded = !expanded }
+                    ) {
+                        OutlinedTextField(
+                            value = period,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Valid Period") },
+                            shape = RoundedCornerShape(12.dp),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth()
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            options.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text("$option seconds") },
+                                    onClick = {
+                                        period = option.toString()
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -842,13 +880,20 @@ fun ScannerScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
-    var preview by remember { mutableStateOf<Preview?>(null) }
-    var imageAnalysis by remember { mutableStateOf<ImageAnalysis?>(null) }
     val previewView = remember { PreviewView(context) }
 
-    val scanner = BarcodeScanning.getClient()
+    val scanner = remember { BarcodeScanning.getClient() }
+    val primaryColor = MaterialTheme.colorScheme.primary
 
-    DisposableEffect(key1 = Unit) {
+    var preview by remember { mutableStateOf<Preview?>(null) }
+    var imageAnalysis by remember { mutableStateOf<ImageAnalysis?>(null) }
+    var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
+
+    var isFlashOn by remember { mutableStateOf(false) }
+
+    val onBarcodeDetectedState by rememberUpdatedState(onBarcodeDetected)
+
+    DisposableEffect(Unit) {
         val cameraProvider = cameraProviderFuture.get()
         val executor = ContextCompat.getMainExecutor(context)
 
@@ -869,9 +914,9 @@ fun ScannerScreen(
                         )
                         scanner.process(inputImage)
                             .addOnSuccessListener { barcodes ->
-                                for (barcode in barcodes) {
+                                barcodes.forEach { barcode ->
                                     barcode.rawValue?.let { code ->
-                                        onBarcodeDetected(code)
+                                        onBarcodeDetectedState(code)
                                         imageProxy.close()
                                         return@addOnSuccessListener
                                     }
@@ -891,12 +936,13 @@ fun ScannerScreen(
 
         try {
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
+            val camera = cameraProvider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
                 preview,
                 imageAnalysis
             )
+            cameraControl = camera.cameraControl
         } catch (exc: Exception) {
             Log.e("ScannerScreen", "Use case binding failed", exc)
         }
@@ -908,6 +954,14 @@ fun ScannerScreen(
         }
     }
 
+    val scanBoxSize = 280.dp
+    val strokeWidth = 4.dp
+    val gapSize = 100.dp
+    val cornerRadius = 24.dp
+
+    // Common background for buttons
+    val buttonBackground = Modifier.background(Color.Black.copy(alpha = 0.5f), shape = CircleShape)
+
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { previewView },
@@ -917,21 +971,180 @@ fun ScannerScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.3f))
+                .background(Color.Black.copy(alpha = 0.6f))
         )
 
-        IconButton(
-            onClick = onCancel,
+        ScannerOverlayWithRoundedCorners(
             modifier = Modifier
+                .size(scanBoxSize)
+                .align(Alignment.Center),
+            color = primaryColor,
+            strokeWidth = strokeWidth,
+            gapSize = gapSize,
+            cornerRadius = cornerRadius
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(12.dp)
-                .align(Alignment.TopStart)
-                .background(Color.Black.copy(alpha = 0.5f), shape = CircleShape)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .align(Alignment.TopCenter),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(Icons.Default.Close, contentDescription = "Cancel Scan", tint = Color.White)
+            IconButton(
+                onClick = onCancel,
+                modifier = buttonBackground
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Cancel Scan", tint = Color.White)
+            }
+
+            Text(
+                text = "Scan QR Code",
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+
+            IconButton(
+                onClick = {
+                    isFlashOn = !isFlashOn
+                    cameraControl?.enableTorch(isFlashOn)
+                },
+                modifier = buttonBackground
+            ) {
+                val flashIcon =
+                    if (isFlashOn) Icons.Default.FlashlightOn else Icons.Default.FlashlightOff
+                Icon(
+                    imageVector = flashIcon,
+                    contentDescription = if (isFlashOn) "Turn off flash" else "Turn on flash",
+                    tint = Color.White
+                )
+            }
         }
     }
 }
+
+
+// Custom composable that draws the scanner border with rounded corners and gaps in edges
+@Composable
+fun ScannerOverlayWithRoundedCorners(
+    modifier: Modifier = Modifier,
+    color: Color,
+    strokeWidth: Dp,
+    gapSize: Dp,
+    cornerRadius: Dp
+) {
+    val strokePx = with(LocalDensity.current) { strokeWidth.toPx() }
+    val gapPx = with(LocalDensity.current) { gapSize.toPx() }
+    val cornerPx = with(LocalDensity.current) { cornerRadius.toPx() }
+
+    Canvas(modifier = modifier) {
+        val sizePx = size.minDimension
+        val halfStroke = strokePx / 2f
+
+        // Draw rounded corners (quarter arcs)
+        drawArc(
+            color = color,
+            startAngle = 180f,
+            sweepAngle = 90f,
+            useCenter = false,
+            topLeft = Offset(halfStroke, halfStroke),
+            size = Size(cornerPx * 2, cornerPx * 2),
+            style = Stroke(strokePx)
+        )
+        drawArc(
+            color = color,
+            startAngle = 270f,
+            sweepAngle = 90f,
+            useCenter = false,
+            topLeft = Offset(sizePx - cornerPx * 2 - halfStroke, halfStroke),
+            size = Size(cornerPx * 2, cornerPx * 2),
+            style = Stroke(strokePx)
+        )
+        drawArc(
+            color = color,
+            startAngle = 0f,
+            sweepAngle = 90f,
+            useCenter = false,
+            topLeft = Offset(
+                sizePx - cornerPx * 2 - halfStroke,
+                sizePx - cornerPx * 2 - halfStroke
+            ),
+            size = Size(cornerPx * 2, cornerPx * 2),
+            style = Stroke(strokePx)
+        )
+        drawArc(
+            color = color,
+            startAngle = 90f,
+            sweepAngle = 90f,
+            useCenter = false,
+            topLeft = Offset(halfStroke, sizePx - cornerPx * 2 - halfStroke),
+            size = Size(cornerPx * 2, cornerPx * 2),
+            style = Stroke(strokePx)
+        )
+
+        // Draw edges with gaps (split each side into two lines with a gap in the middle)
+        // Horizontal top
+        drawLine(
+            color = color,
+            strokeWidth = strokePx,
+            start = Offset(cornerPx + halfStroke, halfStroke),
+            end = Offset((sizePx / 2f) - (gapPx / 2f), halfStroke)
+        )
+        drawLine(
+            color = color,
+            strokeWidth = strokePx,
+            start = Offset((sizePx / 2f) + (gapPx / 2f), halfStroke),
+            end = Offset(sizePx - cornerPx - halfStroke, halfStroke)
+        )
+
+        // Horizontal bottom
+        drawLine(
+            color = color,
+            strokeWidth = strokePx,
+            start = Offset(cornerPx + halfStroke, sizePx - halfStroke),
+            end = Offset((sizePx / 2f) - (gapPx / 2f), sizePx - halfStroke)
+        )
+        drawLine(
+            color = color,
+            strokeWidth = strokePx,
+            start = Offset((sizePx / 2f) + (gapPx / 2f), sizePx - halfStroke),
+            end = Offset(sizePx - cornerPx - halfStroke, sizePx - halfStroke)
+        )
+
+        // Vertical left
+        drawLine(
+            color = color,
+            strokeWidth = strokePx,
+            start = Offset(halfStroke, cornerPx + halfStroke),
+            end = Offset(halfStroke, (sizePx / 2f) - (gapPx / 2f))
+        )
+        drawLine(
+            color = color,
+            strokeWidth = strokePx,
+            start = Offset(halfStroke, (sizePx / 2f) + (gapPx / 2f)),
+            end = Offset(halfStroke, sizePx - cornerPx - halfStroke)
+        )
+
+        // Vertical right
+        drawLine(
+            color = color,
+            strokeWidth = strokePx,
+            start = Offset(sizePx - halfStroke, cornerPx + halfStroke),
+            end = Offset(sizePx - halfStroke, (sizePx / 2f) - (gapPx / 2f))
+        )
+        drawLine(
+            color = color,
+            strokeWidth = strokePx,
+            start = Offset(sizePx - halfStroke, (sizePx / 2f) + (gapPx / 2f)),
+            end = Offset(sizePx - halfStroke, sizePx - cornerPx - halfStroke)
+        )
+    }
+}
+
+
 
 
 
