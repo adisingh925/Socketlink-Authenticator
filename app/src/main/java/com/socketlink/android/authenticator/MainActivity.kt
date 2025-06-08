@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -142,6 +143,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         System.setProperty("com.warrenstrange.googleauth.rng.algorithmProvider", "AndroidOpenSSL")
         enableEdgeToEdge()
+
+        /** Block screenshots */
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
+
         setContent {
             SocketlinkAuthenticatorTheme {
                 /** NavController to handle navigation */
