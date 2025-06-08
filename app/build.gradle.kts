@@ -83,5 +83,5 @@ dependencies {
     implementation(libs.accompanist.permissions.vlatestversion)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.commons.codec)
-    implementation(libs.androidx.material)
+    implementation("androidx.compose.material:material:1.8.2")
 }
