@@ -1,14 +1,13 @@
 package com.socketlink.android.authenticator
 
 import android.app.Application
-import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -138,16 +137,16 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
      * @param secret The new OTP secret to add.
      */
     suspend fun addSecret(secret: OtpEntry) {
+        // Update UI first for immediate feedback
+        val newEntry = secret.copy(
+            code = OtpUtils.generateOtp(secret.secret, secret.digits, secret.algorithm, secret.period)
+        )
+        _otpEntries.value = _otpEntries.value + newEntry
+
         // Save the updated list in the background
         withContext(Dispatchers.IO) {
             val all = OtpStorage.loadOtpList(getApplication()) + secret
             OtpStorage.saveOtpList(getApplication(), all)
-        }
-
-        // Update codes only if needed
-        withContext(Dispatchers.Main) {
-            _otpEntries.value = _otpEntries.value + secret
-            updateOtpCodes()
         }
     }
 
