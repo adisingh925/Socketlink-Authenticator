@@ -17,64 +17,36 @@ import kotlinx.coroutines.withContext
  */
 class OtpViewModel(application: Application) : AndroidViewModel(application) {
 
-    /**
-     * Backing StateFlow holding the current list of OTP entries.
-     */
     private val _otpEntries = MutableStateFlow<List<OtpEntry>>(emptyList())
-
-    /**
-     * Public immutable StateFlow exposing OTP entries.
-     */
     val otpEntries: StateFlow<List<OtpEntry>> = _otpEntries
 
-    /**
-     * Backing StateFlow holding progress (0f..1f) for each OTP entry identified by
-     * a unique key (accountName + issuer).
-     */
     private val _progressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
-
-    /**
-     * Public immutable StateFlow exposing progress map for OTP entries.
-     */
     val progressMap: StateFlow<Map<String, Float>> = _progressMap
 
-    /**
-     * Initialization block to load OTP secrets, update OTP codes immediately,
-     * and start the periodic ticker for progress and code updates.
-     */
     init {
-        // Load stored OTP secrets into entries
-        loadOtpEntries()
+        // Initialize DataStore securely
+        OtpStorage.initialize(application.applicationContext)
 
-        // Generate OTP codes immediately for initial display
-        updateOtpCodes()
-
-        // Start ticker to update progress and OTP codes on period boundary
-        startTicker()
-    }
-
-    /**
-     * Loads OTP secrets from storage and updates the _otpEntries StateFlow.
-     * Sets initial codes to empty strings; codes will be generated separately.
-     */
-    private fun loadOtpEntries() {
-        val stored = OtpStorage.loadOtpList(getApplication())
-        _otpEntries.value = stored.map {
-            OtpEntry(
-                id = it.id,
-                codeName = it.codeName,
-                secret = it.secret,
-                code = "", // Will be generated next
-                digits = it.digits,
-                algorithm = it.algorithm,
-                period = it.period
-            )
+        // Load data and start ticker
+        viewModelScope.launch {
+            loadOtpEntries()
+            updateOtpCodes()
+            startTicker()
         }
     }
 
     /**
-     * Generates OTP codes for all entries and updates the _otpEntries StateFlow.
-     * Should be called on period boundary or during initialization.
+     * Loads OTP secrets from storage and updates the _otpEntries StateFlow.
+     */
+    private suspend fun loadOtpEntries() {
+        val stored = OtpStorage.loadOtpList()
+        _otpEntries.value = stored.map {
+            it.copy(code = "") // empty code for now
+        }
+    }
+
+    /**
+     * Generates OTP codes for all entries.
      */
     private fun updateOtpCodes() {
         _otpEntries.value = _otpEntries.value.map { otp ->
@@ -83,13 +55,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Starts a coroutine ticker that updates OTP code progress every second,
-     * and regenerates OTP codes exactly at each period boundary.
-     */
-    /**
-     * Starts a coroutine ticker that updates OTP codes and progress values continuously.
-     * It runs in a loop with a short delay to achieve smooth progress bar animations
-     * and ensures OTP codes update exactly at the period boundary.
+     * Periodically updates OTP codes and progress.
      */
     private fun startTicker() {
         viewModelScope.launch {
@@ -110,7 +76,6 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     lastPeriodMap[otp.id] = currentPeriod
-
                     otp.copy(code = newCode)
                 }
 
@@ -131,37 +96,39 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Adds a new OTP secret to the stored list, saves it,
-     * reloads all OTP entries, and updates OTP codes immediately.
-     *
-     * @param secret The new OTP secret to add.
+     * Adds a new OTP entry and saves it securely.
      */
-    suspend fun addSecret(secret: OtpEntry) {
-        // Update UI first for immediate feedback
+    fun addSecret(secret: OtpEntry) {
         val newEntry = secret.copy(
-            code = OtpUtils.generateOtp(secret.secret, secret.digits, secret.algorithm, secret.period)
+            code = OtpUtils.generateOtp(
+                secret.secret,
+                secret.digits,
+                secret.algorithm,
+                secret.period
+            )
         )
         _otpEntries.value = _otpEntries.value + newEntry
 
-        // Save the updated list in the background
-        withContext(Dispatchers.IO) {
-            val all = OtpStorage.loadOtpList(getApplication()) + secret
-            OtpStorage.saveOtpList(getApplication(), all)
+        viewModelScope.launch(Dispatchers.IO) {
+            val all = OtpStorage.loadOtpList() + newEntry
+            OtpStorage.saveOtpList(all)
         }
     }
 
+
+    /**
+     * Deletes the given OTP and updates storage.
+     */
     fun deleteSecret(otpToDelete: OtpEntry) {
-        // Immediately update the in-memory list for fast UI response
         _otpEntries.value = _otpEntries.value.filterNot { it.id == otpToDelete.id }
 
-        // Launch background coroutine to update persistent storage
-        viewModelScope.launch(Dispatchers.IO) {
-            val all = OtpStorage.loadOtpList(getApplication())
-                .filterNot { it.id == otpToDelete.id }
-            OtpStorage.saveOtpList(getApplication(), all)
+        viewModelScope.launch {
+            val all = OtpStorage.loadOtpList().filterNot { it.id == otpToDelete.id }
+            OtpStorage.saveOtpList(all)
         }
     }
 }
+
 
 
 

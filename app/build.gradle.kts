@@ -86,4 +86,10 @@ dependencies {
     implementation(libs.commons.codec)
     implementation(libs.androidx.material)
     implementation(libs.androidx.biometric)
+
+    // DataStore
+    implementation("androidx.datastore:datastore-preferences:1.1.7")
+    // Tink for encryption
+    implementation(libs.tink.android)
+
 }

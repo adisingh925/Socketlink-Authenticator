@@ -307,23 +307,18 @@ class MainActivity : ComponentActivity() {
 
                         /** Add OTP screen */
                         composable("add") {
-                            val coroutineScope = rememberCoroutineScope()
-
                             AddOtpScreen(
                                 onAdd = { codeName, secret, digits, algorithm, period ->
-                                    coroutineScope.launch {
-                                        otpViewModel.addSecret(
-                                            OtpEntry(
-                                                codeName = codeName,
-                                                secret = secret,
-                                                code = "",
-                                                digits = digits,
-                                                algorithm = algorithm,
-                                                period = period
-                                            )
+                                    otpViewModel.addSecret(
+                                        OtpEntry(
+                                            codeName = codeName,
+                                            secret = secret,
+                                            code = "",
+                                            digits = digits,
+                                            algorithm = algorithm,
+                                            period = period
                                         )
-                                    }
-
+                                    )
                                     navController.popBackStack()
                                 },
                                 onCancel = { navController.popBackStack() }
