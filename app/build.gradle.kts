@@ -47,7 +47,6 @@ android {
 }
 
 dependencies {
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -67,29 +66,24 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.security.crypto)
     implementation(libs.accompanist.permissions)
-    implementation(libs.core) // For QR code parsing
+    implementation(libs.core)
     implementation(libs.warrenstrange.googleauth)
     implementation(libs.gson)
     implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation(libs.androidx.navigation.compose.v275) // Use latest
-    implementation(libs.accompanist.navigation.animation) // Check for latest
-
-    // CameraX
+    implementation(libs.androidx.navigation.compose.v275)
+    implementation(libs.accompanist.navigation.animation)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
-
-    // ML Kit Barcode Scanning
     implementation(libs.barcode.scanning)
     implementation(libs.accompanist.permissions.vlatestversion)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.commons.codec)
     implementation(libs.androidx.material)
     implementation(libs.androidx.biometric)
-
-    // DataStore
     implementation(libs.androidx.datastore.preferences)
-    // Tink for encryption
     implementation(libs.tink.android)
-
+    implementation(libs.review)
+    implementation(libs.core.v351)
+    implementation(libs.zxing.android.embedded)
 }
