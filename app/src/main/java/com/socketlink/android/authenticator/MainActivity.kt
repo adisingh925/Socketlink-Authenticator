@@ -46,6 +46,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -152,7 +153,6 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -998,7 +998,7 @@ fun ExportQRCodeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .padding(horizontal = 10.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -1012,12 +1012,15 @@ fun ExportQRCodeScreen(
                     tonalElevation = 4.dp,
                     shadowElevation = 8.dp,
                     shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.size(320.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(24.dp),
+                            .padding(0.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         if (qrBitmap != null) {
@@ -1056,7 +1059,7 @@ fun ExportQRCodeScreen(
                     modifier = Modifier.weight(1f),
                     enabled = currentIndex > 0,
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Icon(Icons.Filled.ArrowBack, contentDescription = "Previous")
                     Spacer(Modifier.width(8.dp))
@@ -1078,7 +1081,6 @@ fun ExportQRCodeScreen(
         }
     }
 }
-
 
 /**
  * Screen to show QR code representing JSON of all OTP entries for export.
