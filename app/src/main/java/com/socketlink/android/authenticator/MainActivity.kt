@@ -11,6 +11,7 @@ import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -59,6 +60,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -127,6 +130,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -588,6 +592,13 @@ fun OtpScreen(
     /** State to hold OTP pending deletion (to show confirmation dialog) */
     var otpPendingDeletion by remember { mutableStateOf<OtpEntry?>(null) }
 
+    /** If the drawer is open close it on back press */
+    BackHandler(enabled = drawerState.isOpen) {
+        drawerScope.launch {
+            drawerState.close()
+        }
+    }
+
     /** Modal navigation drawer wrapping the main content and drawer content */
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -970,7 +981,7 @@ fun ExportQRCodeScreen(
     val otpJson = remember(otpEntries) { gson.toJson(otpEntries) }
     val chunkedJsonList = remember(otpJson) { splitStringIntoChunks(otpJson, maxChunkSize = 800) }
 
-    var currentIndex by remember { mutableStateOf(0) }
+    var currentIndex by remember { mutableIntStateOf(0) }
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     LaunchedEffect(currentIndex) {
@@ -993,63 +1004,59 @@ fun ExportQRCodeScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onBackground
     ) { paddingValues ->
-
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 10.dp)
+                .padding(horizontal = 32.dp)
         ) {
-            Column(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(24.dp)
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
             ) {
-                /** QR Code card with elevation and rounded corners */
-                Surface(
-                    tonalElevation = 4.dp,
-                    shadowElevation = 8.dp,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f)
-
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
-                    Box(
+                    Surface(
+                        tonalElevation = 4.dp,
+                        shadowElevation = 8.dp,
+                        shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(0.dp),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
                     ) {
-                        if (qrBitmap != null) {
-                            Image(
-                                bitmap = qrBitmap!!.asImageBitmap(),
-                                contentDescription = "OTP Export QR Code",
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(48.dp),
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (qrBitmap != null) {
+                                Image(
+                                    bitmap = qrBitmap!!.asImageBitmap(),
+                                    contentDescription = "OTP Export QR Code",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(48.dp),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
-                }
 
-                /** Page indicator text */
-                Text(
-                    text = if (qrBitmap != null) "QR Code ${currentIndex + 1} of ${chunkedJsonList.size}" else "Generating QR code...",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                    Text(
+                        text = if (qrBitmap != null) "QR Code ${currentIndex + 1} of ${chunkedJsonList.size}" else "Generating QR code...",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
 
-            /** Navigation buttons */
             Row(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .padding(bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -1482,7 +1489,6 @@ fun AddOtpScreen(
     }
 }
 
-
 @androidx.annotation.OptIn(ExperimentalGetImage::class)
 @Composable
 fun ScannerScreen(
@@ -1500,7 +1506,6 @@ fun ScannerScreen(
     var preview by remember { mutableStateOf<Preview?>(null) }
     var imageAnalysis by remember { mutableStateOf<ImageAnalysis?>(null) }
     var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
-
     var isFlashOn by remember { mutableStateOf(false) }
 
     val onBarcodeDetectedState by rememberUpdatedState(onBarcodeDetected)
@@ -1571,7 +1576,6 @@ fun ScannerScreen(
     val gapSize = 100.dp
     val cornerRadius = 24.dp
 
-    // Common background for buttons
     val buttonBackground = Modifier.background(Color.Black.copy(alpha = 0.5f), shape = CircleShape)
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -1638,8 +1642,6 @@ fun ScannerScreen(
     }
 }
 
-
-// Custom composable that draws the scanner border with rounded corners and gaps in edges
 @Composable
 fun ScannerOverlayWithRoundedCorners(
     modifier: Modifier = Modifier,
