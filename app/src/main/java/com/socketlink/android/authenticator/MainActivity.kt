@@ -1,6 +1,7 @@
 package com.socketlink.android.authenticator
 
 import android.app.Activity
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -12,8 +13,10 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.camera.core.CameraControl
 import androidx.camera.core.CameraSelector
@@ -61,7 +64,6 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -87,9 +89,12 @@ import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.FlashlightOff
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.WarningAmber
@@ -157,6 +162,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -189,6 +195,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import androidx.core.content.edit
 
 class MainActivity : ComponentActivity() {
     private val otpViewModel: OtpViewModel by viewModels()
@@ -256,7 +263,7 @@ class MainActivity : ComponentActivity() {
                      */
                     AnimatedNavHost(
                         navController = navController,
-                        startDestination = "main",
+                        startDestination = "auth",
 
                         /** Enter transition when navigating forward */
                         enterTransition = {
@@ -290,6 +297,19 @@ class MainActivity : ComponentActivity() {
                             ) + fadeOut(tween(500, easing = FastOutSlowInEasing))
                         }
                     ) {
+                        composable("auth") {
+                            AuthenticationScreen(
+                                onAuthenticated = {
+                                    navController.navigate("main") {
+                                        popUpTo("auth") { inclusive = true }
+                                    }
+                                },
+                                onFailed = {
+                                    /** failed to authenticate */
+                                }
+                            )
+                        }
+
                         /**
                          * Main screen composable:
                          * Displays list of OTPs and shows floating action buttons.
@@ -500,13 +520,143 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(navController: NavController) {
-    var appLockEnabled by rememberSaveable { mutableStateOf(false) }
+fun AuthenticationScreen(
+    /** Callback when authentication is successful */
+    onAuthenticated: () -> Unit,
 
+    /** Callback when authentication fails or is cancelled */
+    onFailed: () -> Unit
+) {
+    /** App context */
+    val context = LocalContext.current
+
+    /** System service to prompt device unlock */
+    val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+
+    /** Flag to ensure unlock intent is triggered only once */
+    var initialPromptShown by remember { mutableStateOf(false) }
+
+    /** Launcher to handle the result of secure unlock intent */
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            onAuthenticated()
+        } else {
+            onFailed()
+        }
+    }
+
+    /** Trigger authentication on first composition */
+    LaunchedEffect(Unit) {
+        if (!initialPromptShown && keyguardManager.isDeviceSecure) {
+            initialPromptShown = true
+            val intent = keyguardManager.createConfirmDeviceCredentialIntent(
+                "Unlock to continue",
+                "Please authenticate to proceed"
+            )
+            if (intent != null) {
+                launcher.launch(intent)
+            } else {
+                onAuthenticated()
+            }
+        } else if (!keyguardManager.isDeviceSecure) {
+            onAuthenticated()
+        }
+    }
+
+    /** UI Surface containing the unlock button */
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        /** Centered Box layout to align unlock button */
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            /** Unlock button */
+            Button(
+                onClick = {
+                    val intent = keyguardManager.createConfirmDeviceCredentialIntent(
+                        "Unlock to continue",
+                        "Please authenticate to proceed"
+                    )
+                    if (keyguardManager.isDeviceSecure && intent != null) {
+                        launcher.launch(intent)
+                    } else {
+                        onAuthenticated()
+                    }
+                },
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth(0.5f)
+                    .height(44.dp)
+            ) {
+                /** Lock-open icon */
+                Icon(
+                    imageVector = Icons.Default.LockOpen,
+                    contentDescription = "Unlock",
+                    modifier = Modifier.size(20.dp)
+                )
+
+                /** Space between icon and text */
+                Spacer(modifier = Modifier.width(8.dp))
+
+                /** Unlock button text */
+                Text("Unlock")
+            }
+        }
+    }
+}
+
+@Composable
+fun rememberAppLockPreference(): Pair<Boolean, (Boolean) -> Unit> {
+    /** Get current context to access SharedPreferences */
+    val context = LocalContext.current
+
+    /** Get SharedPreferences named "settings_prefs" in private mode */
+    val prefs = context.getSharedPreferences("settings_prefs", Context.MODE_PRIVATE)
+
+    /**
+     * Remember the current app lock state.
+     * Initialized from SharedPreferences or defaults to false
+     */
+    var appLockEnabled by remember {
+        mutableStateOf(prefs.getBoolean("app_lock_enabled", false))
+    }
+
+    /**
+     * Lambda to save the app lock setting to SharedPreferences and update state
+     * @param enabled new boolean value indicating whether app lock is enabled
+     */
+    val saveAppLock: (Boolean) -> Unit = { enabled ->
+        prefs.edit {
+            putBoolean("app_lock_enabled", enabled) // Save the new value
+        }
+        appLockEnabled = enabled // Update Compose state to reflect change
+    }
+
+    /** Return current state and the function to update it */
+    return appLockEnabled to saveAppLock
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(navController: NavController) {
+    /**
+     * Get current app lock state and setter lambda
+     * backed by SharedPreferences via rememberAppLockPreference()
+     */
+    val (appLockEnabled, setAppLockEnabled) = rememberAppLockPreference()
+
+    /** Scaffold with a top app bar */
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text("Settings") }, // Screen title
+
+                /** Navigation icon to go back to previous screen */
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
@@ -518,22 +668,41 @@ fun SettingsScreen(navController: NavController) {
             )
         }
     ) { paddingValues ->
+
+        /**
+         * Column container for the settings list,
+         * applies system padding and fills available size.
+         * Allows vertical scrolling if content overflows.
+         */
         Column(
             modifier = Modifier
                 .padding(paddingValues)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
+            /**
+             * Single setting item for "App Lock" feature toggle.
+             * Entire row is clickable to toggle the switch.
+             */
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { appLockEnabled = !appLockEnabled },
-                headlineContent = { Text("App Lock") },
-                supportingContent = { Text("Require biometric authentication to open the app") },
+                    .clickable {
+                        // Toggle app lock setting on row click
+                        setAppLockEnabled(!appLockEnabled)
+                    },
+                headlineContent = { Text("App Lock") }, // Main label
+                supportingContent = {
+                    Text("Require biometric authentication to open the app") // Description below label
+                },
                 trailingContent = {
+                    /**
+                     * Switch toggle to enable/disable app lock
+                     * Updates the setting immediately when toggled
+                     */
                     Switch(
                         checked = appLockEnabled,
-                        onCheckedChange = { appLockEnabled = it },
+                        onCheckedChange = { setAppLockEnabled(it) },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
                             checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
