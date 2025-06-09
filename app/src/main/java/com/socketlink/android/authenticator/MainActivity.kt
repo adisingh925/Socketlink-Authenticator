@@ -3,6 +3,7 @@ package com.socketlink.android.authenticator
 import android.app.Activity
 import android.app.KeyguardManager
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
@@ -18,6 +19,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.camera.core.CameraControl
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
@@ -196,8 +200,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import androidx.core.content.edit
+import androidx.fragment.app.FragmentActivity
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
     private val otpViewModel: OtpViewModel by viewModels()
 
     @OptIn(
@@ -298,7 +303,7 @@ class MainActivity : ComponentActivity() {
                         }
                     ) {
                         composable("auth") {
-                            AuthenticationScreen(
+                            AuthenticationScreenWrapper(
                                 onAuthenticated = {
                                     navController.navigate("main") {
                                         popUpTo("auth") { inclusive = true }
@@ -496,13 +501,7 @@ class MainActivity : ComponentActivity() {
                         }
 
                         composable("transfer") {
-                            TransferCodesScreen(navController, onExportClick = {
-                                /** Navigate to QR code export screen */
-                                navController.navigate("export")
-                            }, onImportClick = {
-                                /** Navigate to import scanner screen */
-                                navController.navigate("scanner?mode=import")
-                            })
+                            TransferCodesScreenWithAuth(navController)
                         }
 
                         composable("export") {
@@ -518,54 +517,214 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@Composable
+fun TransferCodesScreenWithAuth(navController: NavController) {
+    /**
+     * State to trigger biometric authentication flow
+     * when user taps on export button
+     */
+    var triggerAuth by remember { mutableStateOf(false) }
+
+    /**
+     * Callback invoked when user clicks "Export"
+     * This sets the trigger to true to start biometric auth
+     */
+    val onExportClick = {
+        triggerAuth = true  // Start biometric auth flow
+    }
+
+    /**
+     * Callback invoked on successful biometric authentication
+     * Resets trigger and navigates to export screen
+     */
+    val onAuthenticated = {
+        navController.navigate("export") // Navigate only after successful auth
+    }
+
+    /**
+     * Callback invoked if biometric authentication fails or cancelled
+     * Resets trigger, you can add error handling here if needed
+     */
+    val onFailed = {
+        // Optionally show error or feedback here
+    }
+
+    /**
+     * Conditionally show the biometric authentication prompt
+     * Only when triggerAuth is true
+     */
+    if (triggerAuth) {
+        BiometricAuthenticator(
+            trigger = triggerAuth,
+            onAuthenticated = onAuthenticated,
+            onFailed = onFailed,
+            resetTrigger = { triggerAuth = false },
+            heading = "Authentication Required",
+            subheading = "Verify your identity to export your codes"
+        )
+    }
+
+    /**
+     * Render the main transfer codes screen UI
+     * Pass the export and import click handlers
+     */
+    TransferCodesScreen(
+        navController = navController,
+        onExportClick = onExportClick,
+        onImportClick = {
+            navController.navigate("scanner?mode=import")
+        }
+    )
+}
+
+@Composable
+fun BiometricAuthenticator(
+    trigger: Boolean,
+    heading: String = "Authenticate",
+    subheading: String = "Please authenticate to continue",
+    onAuthenticated: () -> Unit,
+    onFailed: () -> Unit,
+    resetTrigger: () -> Unit
+) {
+    /** Get the current context */
+    val context = LocalContext.current
+
+    /**
+     * Extension function to recursively find FragmentActivity from any Context.
+     * Returns null if no FragmentActivity is found.
+     */
+    fun Context.findFragmentActivity(): FragmentActivity? = when (this) {
+        is FragmentActivity -> this
+        is ContextWrapper -> baseContext.findFragmentActivity()
+        else -> null
+    }
+
+    /** Attempt to find the hosting FragmentActivity or exit early */
+    val activity = context.findFragmentActivity() ?: run {
+        Log.d("BiometricAuthenticator", "No FragmentActivity found")
+        resetTrigger()
+        onFailed()
+        return
+    }
+
+    /** Get BiometricManager instance to check biometric availability */
+    val biometricManager = BiometricManager.from(context)
+
+    /** Check biometric availability and handle fallback if unavailable */
+    if (trigger) {
+        when (biometricManager.canAuthenticate(
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        )) {
+            BiometricManager.BIOMETRIC_SUCCESS -> Unit // proceed normally
+            else -> {
+                /** No biometric available, fallback to success */
+                resetTrigger()
+                onAuthenticated()
+                return
+            }
+        }
+    }
+
+    /**
+     * Authentication callback to handle biometric prompt results.
+     * Uses 'remember' to avoid creating new instances on recomposition.
+     */
+    val callback = remember {
+        object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                super.onAuthenticationSucceeded(result)
+                resetTrigger()
+                onAuthenticated()
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                super.onAuthenticationError(errorCode, errString)
+                resetTrigger()
+                onFailed()
+            }
+
+            override fun onAuthenticationFailed() {
+                super.onAuthenticationFailed()
+                /** Optional: handle authentication failure (e.g., show a toast) */
+                resetTrigger()
+                onFailed()
+            }
+        }
+    }
+
+    /**
+     * Create BiometricPrompt instance tied to the FragmentActivity and main thread executor.
+     * 'remember' ensures it persists across recompositions.
+     */
+    val biometricPrompt = remember {
+        BiometricPrompt(activity, ContextCompat.getMainExecutor(context), callback)
+    }
+
+    /**
+     * Build the prompt information for the biometric dialog.
+     * 'remember' caches it unless input parameters change.
+     */
+    val promptInfo = remember {
+        BiometricPrompt.PromptInfo.Builder()
+            .setTitle(heading)
+            .setSubtitle(subheading)
+            .setAllowedAuthenticators(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            ).build()
+    }
+
+    /** Launch biometric prompt whenever 'trigger' becomes true */
+    LaunchedEffect(trigger) {
+        if (trigger) {
+            biometricPrompt.authenticate(promptInfo)
+        }
+    }
+}
+
+/** Helper extension to get Activity from Context */
+fun Context.findFragmentActivity(): FragmentActivity? = when (this) {
+    is FragmentActivity -> this
+    is ContextWrapper -> baseContext.findFragmentActivity()
+    else -> null
+}
+
+@Composable
+fun AuthenticationScreenWrapper(
+    /** Callback when authentication succeeds or is not required */
+    onAuthenticated: () -> Unit,
+
+    /** Callback when authentication fails */
+    onFailed: () -> Unit
+) {
+    /** Access app lock preference */
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("settings_prefs", Context.MODE_PRIVATE)
+    val appLockEnabled = remember { prefs.getBoolean("app_lock_enabled", false) }
+
+    /** If app lock is enabled, show authentication screen */
+    if (appLockEnabled) {
+        AuthenticationScreen(
+            onAuthenticated = onAuthenticated,
+            onFailed = onFailed
+        )
+    } else {
+        // Skip authentication if app lock is disabled
+        LaunchedEffect(Unit) {
+            onAuthenticated()
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthenticationScreen(
-    /** Callback when authentication is successful */
     onAuthenticated: () -> Unit,
-
-    /** Callback when authentication fails or is cancelled */
     onFailed: () -> Unit
 ) {
-    /** App context */
-    val context = LocalContext.current
+    /** Trigger state for authentication */
+    var triggerAuth by remember { mutableStateOf(true) }
 
-    /** System service to prompt device unlock */
-    val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-
-    /** Flag to ensure unlock intent is triggered only once */
-    var initialPromptShown by remember { mutableStateOf(false) }
-
-    /** Launcher to handle the result of secure unlock intent */
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            onAuthenticated()
-        } else {
-            onFailed()
-        }
-    }
-
-    /** Trigger authentication on first composition */
-    LaunchedEffect(Unit) {
-        if (!initialPromptShown && keyguardManager.isDeviceSecure) {
-            initialPromptShown = true
-            val intent = keyguardManager.createConfirmDeviceCredentialIntent(
-                "Unlock to continue",
-                "Please authenticate to proceed"
-            )
-            if (intent != null) {
-                launcher.launch(intent)
-            } else {
-                onAuthenticated()
-            }
-        } else if (!keyguardManager.isDeviceSecure) {
-            onAuthenticated()
-        }
-    }
-
-    /** UI Surface containing the unlock button */
+    /** Main screen */
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -577,36 +736,31 @@ fun AuthenticationScreen(
         ) {
             /** Unlock button */
             Button(
-                onClick = {
-                    val intent = keyguardManager.createConfirmDeviceCredentialIntent(
-                        "Unlock to continue",
-                        "Please authenticate to proceed"
-                    )
-                    if (keyguardManager.isDeviceSecure && intent != null) {
-                        launcher.launch(intent)
-                    } else {
-                        onAuthenticated()
-                    }
-                },
+                onClick = { triggerAuth = true },
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth(0.5f)
                     .height(44.dp)
             ) {
-                /** Lock-open icon */
                 Icon(
                     imageVector = Icons.Default.LockOpen,
                     contentDescription = "Unlock",
                     modifier = Modifier.size(20.dp)
                 )
-
-                /** Space between icon and text */
                 Spacer(modifier = Modifier.width(8.dp))
-
-                /** Unlock button text */
                 Text("Unlock")
             }
         }
+
+        /** Trigger biometric/device credential auth */
+        BiometricAuthenticator(
+            trigger = triggerAuth,
+            onAuthenticated = onAuthenticated,
+            onFailed = onFailed,
+            resetTrigger = { triggerAuth = false },
+            heading = "Unlock Authenticator",
+            subheading = "Use your screen lock to unlock Authenticator"
+        )
     }
 }
 
@@ -644,65 +798,53 @@ fun rememberAppLockPreference(): Pair<Boolean, (Boolean) -> Unit> {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(navController: NavController) {
-    /**
-     * Get current app lock state and setter lambda
-     * backed by SharedPreferences via rememberAppLockPreference()
-     */
+    /** Get current App Lock setting and setter */
     val (appLockEnabled, setAppLockEnabled) = rememberAppLockPreference()
 
-    /** Scaffold with a top app bar */
+    /** UI state: pending toggle after auth */
+    var togglePending by remember { mutableStateOf<Boolean?>(null) }
+
+    /** Trigger biometric flow only when toggle is attempted */
+    var triggerAuth by remember { mutableStateOf(false) }
+
+    /** Scaffold with top app bar */
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") }, // Screen title
-
-                /** Navigation icon to go back to previous screen */
+                title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(
-                            imageVector = Icons.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
         }
     ) { paddingValues ->
-
-        /**
-         * Column container for the settings list,
-         * applies system padding and fills available size.
-         * Allows vertical scrolling if content overflows.
-         */
         Column(
             modifier = Modifier
                 .padding(paddingValues)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-            /**
-             * Single setting item for "App Lock" feature toggle.
-             * Entire row is clickable to toggle the switch.
-             */
+            /** App Lock toggle setting item */
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                        // Toggle app lock setting on row click
-                        setAppLockEnabled(!appLockEnabled)
+                        togglePending = !appLockEnabled
+                        triggerAuth = true
                     },
-                headlineContent = { Text("App Lock") }, // Main label
+                headlineContent = { Text("App Lock") },
                 supportingContent = {
-                    Text("Require biometric authentication to open the app") // Description below label
+                    Text("Access to this app will be restricted by your screen lock")
                 },
                 trailingContent = {
-                    /**
-                     * Switch toggle to enable/disable app lock
-                     * Updates the setting immediately when toggled
-                     */
                     Switch(
                         checked = appLockEnabled,
-                        onCheckedChange = { setAppLockEnabled(it) },
+                        onCheckedChange = {
+                            togglePending = it
+                            triggerAuth = true
+                        },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
                             checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
@@ -713,6 +855,25 @@ fun SettingsScreen(navController: NavController) {
                         )
                     )
                 }
+            )
+        }
+
+        /** Biometric authentication triggered here */
+        if (triggerAuth && togglePending != null) {
+            BiometricAuthenticator(
+                trigger = triggerAuth,
+                onAuthenticated = {
+                    togglePending?.let { setAppLockEnabled(it) }
+                    togglePending = null
+                },
+                onFailed = {
+                    togglePending = null
+                },
+                resetTrigger = {
+                    triggerAuth = false
+                },
+                heading = "Authentication Required",
+                subheading = "Verify your identity to change this setting"
             )
         }
     }
