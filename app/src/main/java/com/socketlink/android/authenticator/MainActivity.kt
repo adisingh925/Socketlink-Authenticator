@@ -74,6 +74,8 @@ import androidx.compose.material.FractionalThreshold
 import androidx.compose.material.SwipeToDismiss
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
@@ -83,11 +85,14 @@ import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.rememberDismissState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -108,6 +113,7 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -136,27 +142,30 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.set
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
+import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.google.accompanist.navigation.animation.AnimatedNavHost
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
@@ -172,14 +181,10 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.socketlink.android.authenticator.OtpUtils.parseOtpAuthUri
 import com.socketlink.android.authenticator.ui.theme.SocketlinkAuthenticatorTheme
-import kotlinx.coroutines.launch
-import androidx.core.graphics.set
-import androidx.navigation.NavType
-import androidx.navigation.navArgument
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
-import androidx.core.graphics.createBitmap
 
 class MainActivity : ComponentActivity() {
     private val otpViewModel: OtpViewModel by viewModels()
@@ -516,7 +521,9 @@ fun SettingsScreen(navController: NavController) {
                 .verticalScroll(rememberScrollState())
         ) {
             ListItem(
-                modifier = Modifier.padding(0.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { appLockEnabled = !appLockEnabled },
                 headlineContent = { Text("App Lock") },
                 supportingContent = { Text("Require biometric authentication to open the app") },
                 trailingContent = {
@@ -777,25 +784,44 @@ fun OtpScreen(
         AlertDialog(
             onDismissRequest = { otpPendingDeletion = null },
 
-            /** Title with smaller size and light red color */
             title = {
-                Text(
-                    text = "Delete – ${otpPendingDeletion!!.codeName}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color(0xFFEF5350) // Light red
-                )
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Icon(
+                        imageVector = Icons.Default.WarningAmber,
+                        contentDescription = "Warning",
+                        tint = Color(0xFFEF5350),
+                        modifier = Modifier
+                            .size(38.dp)
+                            .align(Alignment.Center)
+                    )
+                }
             },
 
-            /** Dialog message with details */
             text = {
-                Text(
-                    "Are you sure you want to delete this OTP code?\n\n" +
-                            "Deleting this code means you will no longer be able to generate " +
-                            "login codes for this account unless you re-add it manually."
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Are you sure you want to delete this OTP code?",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+
+                    Text(
+                        text = otpPendingDeletion?.codeName ?: "NA",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFEF5350),
+                    )
+
+                    Text(
+                        text = "Deleting this code means you will no longer be able to generate login codes for this account unless you re-add it manually.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             },
 
-            /** Confirm (Delete) button */
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -807,7 +833,6 @@ fun OtpScreen(
                 }
             },
 
-            /** Cancel button */
             dismissButton = {
                 TextButton(onClick = { otpPendingDeletion = null }) {
                     Text("Cancel")
@@ -941,38 +966,19 @@ fun ExportQRCodeScreen(
     navController: NavController,
     otpEntries: List<OtpEntry>
 ) {
-    /** Gson instance for JSON serialization */
     val gson = remember { Gson() }
-
-    /** Convert OTP entries list to JSON string, recompute only if entries change */
     val otpJson = remember(otpEntries) { gson.toJson(otpEntries) }
+    val chunkedJsonList = remember(otpJson) { splitStringIntoChunks(otpJson, maxChunkSize = 800) }
 
-    /** Split the JSON string into smaller chunks suitable for QR code encoding */
-    val chunkedJsonList = remember(otpJson) {
-        splitStringIntoChunks(
-            otpJson,
-            maxChunkSize = 800
-        )
-    }
-
-    /** Holds the current QR code page index */
     var currentIndex by remember { mutableStateOf(0) }
-
-    /** Holds the generated QR code bitmap for the current chunk */
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
-    /**
-     * Generate QR code bitmap asynchronously on background thread
-     * whenever the currentIndex changes.
-     * This prevents UI blocking and keeps navigation animations smooth.
-     */
     LaunchedEffect(currentIndex) {
         qrBitmap = withContext(Dispatchers.Default) {
             generateQRCodeBitmap(chunkedJsonList[currentIndex], 600, 600)
         }
     }
 
-    /** Scaffold container with TopAppBar and content */
     Scaffold(
         topBar = {
             TopAppBar(
@@ -983,69 +989,96 @@ fun ExportQRCodeScreen(
                     }
                 }
             )
-        }
+        },
+        containerColor = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground
     ) { paddingValues ->
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
-            /** Center column containing the QR code and page indicator */
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 24.dp),
+                    .fillMaxWidth()
+                    .align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                if (qrBitmap != null) {
-                    /** Display generated QR code bitmap */
-                    Image(
-                        bitmap = qrBitmap!!.asImageBitmap(),
-                        contentDescription = "OTP Export QR Code",
-                        modifier = Modifier.size(300.dp)
-                    )
-                    Spacer(Modifier.height(16.dp))
-
-                    /** Show current QR page number */
-                    Text("QR ${currentIndex + 1} of ${chunkedJsonList.size}")
-                } else {
-                    /** Show progress indicator while QR code is being generated */
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(16.dp))
-                    Text("Generating QR code...")
+                /** QR Code card with elevation and rounded corners */
+                Surface(
+                    tonalElevation = 4.dp,
+                    shadowElevation = 8.dp,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.size(320.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (qrBitmap != null) {
+                            Image(
+                                bitmap = qrBitmap!!.asImageBitmap(),
+                                contentDescription = "OTP Export QR Code",
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(48.dp),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                 }
+
+                /** Page indicator text */
+                Text(
+                    text = if (qrBitmap != null) "QR Code ${currentIndex + 1} of ${chunkedJsonList.size}" else "Generating QR code...",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
 
-            /** Bottom row containing Previous and Next navigation buttons */
+            /** Navigation buttons */
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(24.dp),
+                    .padding(bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                /** Previous button, disabled if on first page */
                 Button(
                     onClick = { if (currentIndex > 0) currentIndex-- },
                     modifier = Modifier.weight(1f),
-                    enabled = currentIndex > 0
+                    enabled = currentIndex > 0,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 ) {
+                    Icon(Icons.Filled.ArrowBack, contentDescription = "Previous")
+                    Spacer(Modifier.width(8.dp))
                     Text("Previous")
                 }
 
-                /** Next button, disabled if on last page */
                 Button(
                     onClick = { if (currentIndex < chunkedJsonList.size - 1) currentIndex++ },
                     modifier = Modifier.weight(1f),
-                    enabled = currentIndex < chunkedJsonList.size - 1
+                    enabled = currentIndex < chunkedJsonList.size - 1,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Text("Next")
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.Filled.ArrowForward, contentDescription = "Next")
                 }
             }
         }
     }
 }
+
 
 /**
  * Screen to show QR code representing JSON of all OTP entries for export.
@@ -1113,46 +1146,75 @@ fun TransferCodesScreen(
         Column(
             modifier = Modifier
                 .padding(paddingValues)
-                /** respect scaffold padding */
                 .fillMaxSize()
                 .padding(16.dp),
-            /** consistent content padding */
             verticalArrangement = Arrangement.spacedBy(24.dp)
-            /** spacing between sections */
         ) {
-            /** Export section: title, explanation, and button */
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Export Codes",
-                    style = MaterialTheme.typography.titleMedium
+            /** Export Section */
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
                 )
-                Text(
-                    text = "Export your OTP codes as a QR code. You can scan this QR code on another device to restore your codes.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Button(
-                    onClick = onExportClick,
-                    modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Export")
+                    Text(
+                        text = "Export Codes",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = "Generate a QR code with your OTPs that can be scanned from another device.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = onExportClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.QrCode, contentDescription = "Export")
+                        Spacer(Modifier.width(8.dp))
+                        Text("Export")
+                    }
                 }
             }
 
-            /** Import section: title, explanation, and button */
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Import Codes",
-                    style = MaterialTheme.typography.titleMedium
+            /** Import Section */
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
                 )
-                Text(
-                    text = "Import OTP codes by scanning a QR code from an exported backup. The scanned codes will be added to your current list.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Button(
-                    onClick = onImportClick,
-                    modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Import")
+                    Text(
+                        text = "Import Codes",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = "Scan a QR code to import OTPs from another device. New entries will be added to your list.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = onImportClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = "Import")
+                        Spacer(Modifier.width(8.dp))
+                        Text("Import")
+                    }
                 }
             }
         }
