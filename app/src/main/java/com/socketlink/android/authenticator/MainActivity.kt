@@ -170,6 +170,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
 import androidx.navigation.NavType
@@ -244,6 +246,34 @@ class MainActivity : AppCompatActivity() {
                 /** Context for showing Toasts or launching settings */
                 val context = LocalContext.current
 
+                /** main lifecycle */
+                val lifecycleOwner = LocalLifecycleOwner.current
+
+                /** state of app lock setting */
+                val (appLockEnabled, _) = rememberAppLockPreference()
+
+                DisposableEffect(lifecycleOwner) {
+                    /** Lifecycle observer to handle app going to background */
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_STOP) {
+                            /** App going to background → lock the screen only if not already on auth */
+                            if (navController.currentDestination?.route != "auth") {
+                                if (appLockEnabled) {
+                                    navController.navigate("auth")
+                                }
+                            }
+                        }
+                    }
+
+                    /** Register the observer */
+                    lifecycleOwner.lifecycle.addObserver(observer)
+
+                    /** Unregister on dispose */
+                    onDispose {
+                        lifecycleOwner.lifecycle.removeObserver(observer)
+                    }
+                }
+
                 /**
                  * Handle camera permission result and navigate to the scanner screen
                  * only when permission is granted and the button was clicked.
@@ -302,12 +332,15 @@ class MainActivity : AppCompatActivity() {
                         composable("auth") {
                             AuthenticationScreenWrapper(
                                 onAuthenticated = {
-                                    navController.navigate("main") {
-                                        popUpTo("auth") { inclusive = true }
+                                    if (!navController.popBackStack()) {
+                                        // Nothing to pop (auth was the start), so navigate to main
+                                        navController.navigate("main") {
+                                            popUpTo("auth") { inclusive = true }
+                                        }
                                     }
                                 },
                                 onFailed = {
-                                    /** failed to authenticate */
+                                    /** Optional: handle failure */
                                 }
                             )
                         }
@@ -631,11 +664,14 @@ fun BiometricAuthenticator(
     onFailed: () -> Unit,
     resetTrigger: () -> Unit
 ) {
-    /** Get the current context */
+    /** Get the current context from Compose environment */
     val context = LocalContext.current
 
+    /** Get the current lifecycle owner (usually the activity or fragment lifecycle) */
+    val lifecycleOwner = LocalLifecycleOwner.current
+
     /**
-     * Extension function to recursively find FragmentActivity from any Context.
+     * Extension function to recursively find the FragmentActivity from any Context.
      * Returns null if no FragmentActivity is found.
      */
     fun Context.findFragmentActivity(): FragmentActivity? = when (this) {
@@ -644,7 +680,7 @@ fun BiometricAuthenticator(
         else -> null
     }
 
-    /** Attempt to find the hosting FragmentActivity or exit early */
+    /** Attempt to find the hosting FragmentActivity or exit early with failure */
     val activity = context.findFragmentActivity() ?: run {
         Log.d("BiometricAuthenticator", "No FragmentActivity found")
         resetTrigger()
@@ -652,30 +688,30 @@ fun BiometricAuthenticator(
         return
     }
 
-    /** Get BiometricManager instance to check biometric availability */
+    /** Obtain BiometricManager instance for biometric capability checks */
     val biometricManager = BiometricManager.from(context)
 
-    /** Check biometric availability and handle fallback if unavailable */
-    if (trigger) {
-        val canAuthenticate = biometricManager.canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        )
-        when (canAuthenticate) {
-            BiometricManager.BIOMETRIC_SUCCESS,
-            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> Unit
+    /** Track if the lifecycle is currently in RESUMED state */
+    var isResumed by remember { mutableStateOf(false) }
 
-            else -> {
-                // No lock on device, auto succeed
-                resetTrigger()
-                onAuthenticated()
-                return
-            }
+    /**
+     * Add lifecycle observer to track lifecycle state changes.
+     * Updates 'isResumed' to true when lifecycle reaches ON_RESUME,
+     * and false on any other lifecycle event.
+     */
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            isResumed = event == Lifecycle.Event.ON_RESUME
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
     /**
-     * Authentication callback to handle biometric prompt results.
-     * Uses 'remember' to avoid creating new instances on recomposition.
+     * Create authentication callback to handle results from biometric prompt.
+     * Use 'remember' to retain the same instance across recompositions.
      */
     val callback = remember {
         object : BiometricPrompt.AuthenticationCallback() {
@@ -693,7 +729,6 @@ fun BiometricAuthenticator(
 
             override fun onAuthenticationFailed() {
                 super.onAuthenticationFailed()
-                /** Optional: handle authentication failure (e.g., show a toast) */
                 resetTrigger()
                 onFailed()
             }
@@ -701,8 +736,8 @@ fun BiometricAuthenticator(
     }
 
     /**
-     * Create BiometricPrompt instance tied to the FragmentActivity and main thread executor.
-     * 'remember' ensures it persists across recompositions.
+     * Create a BiometricPrompt instance tied to the FragmentActivity and
+     * main thread executor. Remember it to avoid recreation on recomposition.
      */
     val biometricPrompt = remember {
         BiometricPrompt(activity, ContextCompat.getMainExecutor(context), callback)
@@ -710,7 +745,7 @@ fun BiometricAuthenticator(
 
     /**
      * Build the prompt information for the biometric dialog.
-     * 'remember' caches it unless input parameters change.
+     * Cache it with 'remember' so it doesn't get recreated unnecessarily.
      */
     val promptInfo = remember {
         BiometricPrompt.PromptInfo.Builder()
@@ -718,13 +753,34 @@ fun BiometricAuthenticator(
             .setSubtitle(subheading)
             .setAllowedAuthenticators(
                 BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
-            ).build()
+            )
+            .build()
     }
 
-    /** Launch biometric prompt whenever 'trigger' becomes true */
-    LaunchedEffect(trigger) {
-        if (trigger) {
-            biometricPrompt.authenticate(promptInfo)
+    /**
+     * Trigger biometric authentication only when:
+     * 1. The external 'trigger' flag is true, and
+     * 2. The lifecycle is currently RESUMED (safe to show dialog).
+     */
+    LaunchedEffect(trigger, isResumed) {
+        if (trigger && isResumed) {
+            // Check if biometric authentication or device credentials are available
+            val canAuthenticate = biometricManager.canAuthenticate(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
+            when (canAuthenticate) {
+                BiometricManager.BIOMETRIC_SUCCESS,
+                BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
+                    // Launch biometric prompt
+                    biometricPrompt.authenticate(promptInfo)
+                }
+
+                else -> {
+                    // If device has no biometric or lock, auto succeed
+                    resetTrigger()
+                    onAuthenticated()
+                }
+            }
         }
     }
 }
@@ -748,6 +804,12 @@ fun AuthenticationScreenWrapper(
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("settings_prefs", Context.MODE_PRIVATE)
     val appLockEnabled = remember { prefs.getBoolean("app_lock_enabled", false) }
+    val activity = (context as? Activity)
+
+    BackHandler {
+        activity?.moveTaskToBack(true)
+        /** moves the app to background */
+    }
 
     /** If app lock is enabled, show authentication screen */
     if (appLockEnabled) {
@@ -756,7 +818,7 @@ fun AuthenticationScreenWrapper(
             onFailed = onFailed
         )
     } else {
-        // Skip authentication if app lock is disabled
+        /** Skip authentication if app lock is disabled */
         LaunchedEffect(Unit) {
             onAuthenticated()
         }
@@ -766,23 +828,50 @@ fun AuthenticationScreenWrapper(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthenticationScreen(
+    /** Called when authentication is successful */
     onAuthenticated: () -> Unit,
+
+    /** Called when authentication fails */
     onFailed: () -> Unit
 ) {
-    /** Trigger state for authentication */
+    /** Controls when biometric authentication should be triggered */
     var triggerAuth by remember { mutableStateOf(true) }
 
-    /** Main screen */
+    /** Provides access to the lifecycle of the current composable */
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    /**
+     * Observes lifecycle to automatically re-trigger authentication
+     * when the app resumes and authentication has not yet been triggered.
+     */
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && !triggerAuth) {
+                /** Re-enable biometric authentication on resume */
+                triggerAuth = true
+            }
+        }
+
+        /** Add the observer to the lifecycle */
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        /** Remove the observer when the composable is disposed */
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    /** Background surface for the screen */
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
-        /** Centered Box layout to align unlock button */
+        /** Centered layout containing the unlock button */
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            /** Unlock button */
+            /** Button to manually trigger authentication */
             Button(
                 onClick = { triggerAuth = true },
                 shape = RoundedCornerShape(12.dp),
@@ -790,6 +879,7 @@ fun AuthenticationScreen(
                     .fillMaxWidth(0.5f)
                     .height(44.dp)
             ) {
+                /** Lock icon inside the button */
                 Icon(
                     imageVector = Icons.Default.LockOpen,
                     contentDescription = "Unlock",
@@ -800,7 +890,7 @@ fun AuthenticationScreen(
             }
         }
 
-        /** Trigger biometric/device credential auth */
+        /** Biometric authentication logic */
         BiometricAuthenticator(
             trigger = triggerAuth,
             onAuthenticated = onAuthenticated,
