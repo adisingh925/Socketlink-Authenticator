@@ -86,4 +86,5 @@ dependencies {
     implementation(libs.review)
     implementation(libs.core.v351)
     implementation(libs.zxing.android.embedded)
+    implementation(libs.cbor)
 }

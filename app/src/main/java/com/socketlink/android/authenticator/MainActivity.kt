@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Base64
 import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
@@ -95,6 +96,7 @@ import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.rememberDismissState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -144,6 +146,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -166,8 +169,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
-import androidx.core.graphics.createBitmap
-import androidx.core.graphics.set
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
@@ -181,7 +182,6 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
 import com.google.android.play.core.review.ReviewManagerFactory
-import com.google.gson.Gson
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import com.google.zxing.BarcodeFormat
@@ -190,11 +190,14 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.socketlink.android.authenticator.OtpUtils.parseOtpAuthUri
 import com.socketlink.android.authenticator.ui.theme.SocketlinkAuthenticatorTheme
+import com.upokecenter.cbor.CBORObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
+import java.io.ByteArrayOutputStream
+import java.util.zip.Deflater
+import java.util.zip.Inflater
 
 class MainActivity : AppCompatActivity() {
     private val otpViewModel: OtpViewModel by viewModels()
@@ -464,23 +467,41 @@ class MainActivity : AppCompatActivity() {
 
                                     "import" -> {
                                         withContext(Dispatchers.IO) {
+                                            val compressedBytes = Base64.decode(code, Base64.NO_WRAP)
+
+                                            val inflater = Inflater()
                                             try {
-                                                val otpJsonArray = JSONArray(code)
-                                                for (i in 0 until otpJsonArray.length()) {
-                                                    val otpJson = otpJsonArray.getJSONObject(i)
-                                                    val otpEntry = OtpEntry(
-                                                        codeName = otpJson.getString("codeName"),
-                                                        secret = otpJson.getString("secret"),
-                                                        code = "",
-                                                        digits = otpJson.getInt("digits"),
-                                                        period = otpJson.getInt("period"),
-                                                        algorithm = otpJson.getString("algorithm")
-                                                    )
-                                                    Log.d("Parsed OTP Entry", otpEntry.toString())
-                                                    otpViewModel.addSecret(otpEntry)
+                                                inflater.setInput(compressedBytes)
+
+                                                val outputStream = ByteArrayOutputStream()
+                                                val buffer = ByteArray(4096)
+
+                                                while (!inflater.finished()) {
+                                                    val count = inflater.inflate(buffer)
+                                                    outputStream.write(buffer, 0, count)
                                                 }
-                                            } catch (e: Exception) {
-                                                Log.e("OTP Import", "Failed to parse JSON", e)
+
+                                                val decompressedBytes = outputStream.toByteArray()
+                                                val cborArray = CBORObject.DecodeFromBytes(decompressedBytes)
+
+                                                val list = mutableListOf<OtpEntry>()
+                                                for (i in 0 until cborArray.size()) {
+                                                    val obj = cborArray.get(i)
+                                                    val otpEntry = OtpEntry(
+                                                        codeName = obj["l"].AsString(),
+                                                        secret = obj["s"].AsString(),
+                                                        code = "",
+                                                        algorithm = obj["t"].AsString(),
+                                                        period = obj["p"].AsInt32(),
+                                                        digits = obj["d"].AsInt32()
+                                                    )
+
+                                                    list.add(otpEntry)
+                                                }
+
+                                                otpViewModel.addSecrets(list)
+                                            } finally {
+                                                inflater.end()
                                             }
                                         }
                                     }
@@ -1326,86 +1347,108 @@ fun OtpCard(
     }
 }
 
+private fun encodeEntriesToBase64(entries: List<OtpEntry>): String {
+    val cborArray = CBORObject.NewArray()
+    entries.forEach {
+        val obj = CBORObject.NewMap()
+        obj.Add("l", it.codeName)
+        obj.Add("s", it.secret)
+        obj.Add("t", it.algorithm)
+        obj.Add("p", it.period)
+        obj.Add("d", it.digits)
+        cborArray.Add(obj)
+    }
+
+    val cborBytes = cborArray.EncodeToBytes()
+    val deflater = Deflater()
+    deflater.setInput(cborBytes)
+    deflater.finish()
+
+    val buffer = ByteArray(2048)
+    val compressedSize = deflater.deflate(buffer)
+    deflater.end()
+
+    val compressed = buffer.copyOf(compressedSize)
+    return Base64.encodeToString(compressed, Base64.NO_WRAP)
+}
+
+private fun createCompressedChunks(entries: List<OtpEntry>, maxBytes: Int): List<String> {
+    val chunks = mutableListOf<List<OtpEntry>>()
+    var currentChunk = mutableListOf<OtpEntry>()
+
+    for (entry in entries) {
+        val testChunk = currentChunk + entry
+        val encoded = encodeEntriesToBase64(testChunk)
+        if (encoded.toByteArray(Charsets.UTF_8).size <= maxBytes) {
+            currentChunk.add(entry)
+        } else {
+            if (currentChunk.isNotEmpty()) {
+                chunks.add(currentChunk)
+            }
+            currentChunk = mutableListOf(entry)
+        }
+    }
+
+    if (currentChunk.isNotEmpty()) {
+        chunks.add(currentChunk)
+    }
+
+    return chunks.map { encodeEntriesToBase64(it) }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExportQRCodeScreen(
+    /** Navigation controller to handle back navigation */
     navController: NavController,
+
+    /** List of OTP entries to be exported */
     otpEntries: List<OtpEntry>
 ) {
-    /** Gson instance for JSON serialization, remembered to avoid unnecessary recreation */
-    val gson = remember { Gson() }
+    /** Maximum byte size for each compressed QR chunk */
+    val maxCompressedBytes = 500
 
-    /** Maximum allowed JSON string size (character count) for each QR code chunk */
-    val maxJsonChunkSize = 1200  // You can adjust this value based on QR capacity tests
+    /** List of compressed QR code chunks */
+    var compressedChunks by remember { mutableStateOf(emptyList<String>()) }
 
-    /**
-     * Splits the OTP entries into JSON chunks that fit under the max JSON chunk size.
-     * This prevents QR codes from exceeding the max data capacity.
-     *
-     * @param entries List of OTP entries to chunk
-     * @param maxChunkSize Maximum allowed JSON string length per chunk
-     * @return List of JSON strings, each representing a chunk of OTP entries
-     */
-    fun createJsonChunks(entries: List<OtpEntry>, maxChunkSize: Int): List<String> {
-        /** Mutable list holding lists of OTP entries for each chunk */
-        val chunks = mutableListOf<List<OtpEntry>>()
+    /** Flag to indicate loading of chunks */
+    var isLoading by remember { mutableStateOf(true) }
 
-        /** Current chunk under construction */
-        var currentChunk = mutableListOf<OtpEntry>()
-
-        /** Iterate through each OTP entry */
-        for (entry in entries) {
-            /** Temporarily add this entry to current chunk and serialize to JSON */
-            val testChunk = currentChunk + entry
-            val json = gson.toJson(testChunk)
-
-            /** If the JSON length is within allowed size, add entry to current chunk */
-            if (json.length <= maxChunkSize) {
-                currentChunk.add(entry)
-            } else {
-                /** Otherwise, close off current chunk (if not empty) and start a new chunk */
-                if (currentChunk.isNotEmpty()) {
-                    chunks.add(currentChunk)
-                }
-                currentChunk = mutableListOf(entry)
-            }
-        }
-
-        /** Add the last chunk if it contains any entries */
-        if (currentChunk.isNotEmpty()) {
-            chunks.add(currentChunk)
-        }
-
-        /** Convert each chunk (list of OTP entries) to its JSON string representation */
-        return chunks.map { gson.toJson(it) }
-    }
-
-    /** Create chunked JSON strings once from OTP entries */
-    val chunkedJsonList = remember(otpEntries) {
-        createJsonChunks(otpEntries, maxJsonChunkSize)
-    }
-
-    /** Holds the currently displayed QR code chunk index */
+    /** Current index of the QR code being displayed */
     var currentIndex by remember { mutableIntStateOf(0) }
 
-    /** Holds the Bitmap for the currently generated QR code */
+    /** Generated QR bitmap */
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
-    /**
-     * Regenerate the QR code bitmap whenever currentIndex changes.
-     * This launches a coroutine in Compose scope, switching to background thread.
-     */
-    LaunchedEffect(currentIndex) {
-        qrBitmap = withContext(Dispatchers.Default) {
-            generateQRCodeBitmap(chunkedJsonList[currentIndex], 600, 600)
+    /** Material color scheme for theming */
+    val colorScheme = MaterialTheme.colorScheme
+
+    /** Check if chunks are loaded and available */
+    val hasData = compressedChunks.isNotEmpty() && !isLoading
+
+    /** Load and compress OTP entries in the background */
+    LaunchedEffect(otpEntries) {
+        val chunks = withContext(Dispatchers.Default) {
+            createCompressedChunks(otpEntries, maxCompressedBytes)
+        }
+        compressedChunks = chunks
+        isLoading = false
+    }
+
+    /** Generate QR code bitmap when data/index changes */
+    LaunchedEffect(currentIndex, compressedChunks) {
+        if (compressedChunks.isNotEmpty()) {
+            qrBitmap = withContext(Dispatchers.Default) {
+                generateQRCodeBitmap(compressedChunks[currentIndex], 600, 600)
+            }
         }
     }
 
-    /** Scaffold container with a top app bar and main content */
+    /** Scaffold layout with app bar and body content */
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Export") }, /** Title text in the app bar */
+                title = { Text("Export") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -1413,96 +1456,120 @@ fun ExportQRCodeScreen(
                 }
             )
         },
-        containerColor = MaterialTheme.colorScheme.background, /** Background color */
-        contentColor = MaterialTheme.colorScheme.onBackground /** Text and icon color */
+        containerColor = colorScheme.background,
+        contentColor = colorScheme.onBackground
     ) { paddingValues ->
 
-        /** Main vertical container with padding */
+        /** Main column layout */
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 32.dp) /** Horizontal padding inside container */
+                .padding(horizontal = 32.dp)
         ) {
-            /** Box to fill vertical space and center QR code and related UI */
+
+            /** QR content area */
             Box(
                 modifier = Modifier
-                    .weight(1f) /** Take up remaining vertical space */
+                    .weight(1f)
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                /** Column for QR code and description text */
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(24.dp) /** Space between children */
-                ) {
-                    /** Surface with elevation and rounded corners for QR code display */
-                    Surface(
-                        tonalElevation = 4.dp,
-                        shadowElevation = 8.dp,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f) /** Keep surface square */
-                    ) {
-                        /** Box to center QR code bitmap or loading indicator */
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
+                when {
+                    /** Show progress spinner while loading */
+                    isLoading -> {
+                        CircularProgressIndicator(color = colorScheme.primary)
+                    }
+
+                    /** Show empty state if no data */
+                    !hasData -> {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.fillMaxSize()
                         ) {
-                            if (qrBitmap != null) {
-                                /** Display QR code image */
-                                Image(
-                                    bitmap = qrBitmap!!.asImageBitmap(),
-                                    contentDescription = "OTP Export QR Code",
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                /** Show progress indicator while QR code is generating */
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(48.dp),
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
+                            Icon(
+                                Icons.Outlined.Inbox,
+                                contentDescription = null,
+                                tint = colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .size(120.dp)
+                                    .padding(bottom = 16.dp)
+                            )
+                            Text(
+                                "Nothing to export",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = colorScheme.onSurfaceVariant
+                            )
                         }
                     }
 
-                    /** Text showing which QR code page is displayed */
-                    Text(
-                        text = if (qrBitmap != null) "QR Code ${currentIndex + 1} of ${chunkedJsonList.size}" else "Generating QR code...",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+                    /** Show QR code and its index */
+                    else -> {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(24.dp)
+                        ) {
+                            /** QR Code display box */
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .shadow(8.dp, RoundedCornerShape(16.dp))
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(colorScheme.surface),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                qrBitmap?.let {
+                                    Image(
+                                        bitmap = it.asImageBitmap(),
+                                        contentDescription = "QR Code",
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } ?: CircularProgressIndicator(
+                                    modifier = Modifier.size(48.dp),
+                                    color = colorScheme.primary
+                                )
+                            }
+
+                            /** QR code index display */
+                            Text(
+                                "QR Code ${currentIndex + 1} of ${compressedChunks.size}",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = colorScheme.primary
+                            )
+                        }
+                    }
                 }
             }
 
-            /** Row containing Previous and Next navigation buttons */
+            /** Next / Previous buttons (always visible) */
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp) /** Spacing between buttons */
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                /** Previous button, disabled if at first chunk */
+                /** Previous button */
                 Button(
-                    onClick = { if (currentIndex > 0) currentIndex-- },
+                    onClick = { currentIndex-- },
                     modifier = Modifier.weight(1f),
-                    enabled = currentIndex > 0,
+                    enabled = hasData && currentIndex > 0,
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary)
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous")
                     Spacer(Modifier.width(8.dp))
                     Text("Previous")
                 }
 
-                /** Next button, disabled if at last chunk */
+                /** Next button */
                 Button(
-                    onClick = { if (currentIndex < chunkedJsonList.size - 1) currentIndex++ },
+                    onClick = { currentIndex++ },
                     modifier = Modifier.weight(1f),
-                    enabled = currentIndex < chunkedJsonList.size - 1,
+                    enabled = hasData && currentIndex < compressedChunks.lastIndex,
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary)
                 ) {
                     Text("Next")
                     Spacer(Modifier.width(8.dp))
@@ -1519,21 +1586,25 @@ fun generateQRCodeBitmap(
     width: Int,
     height: Int
 ): Bitmap? {
+    if (text.isEmpty()) return null
+
     return try {
         val hints = mapOf(
             EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.H,
             EncodeHintType.CHARACTER_SET to "UTF-8"
         )
         val bitMatrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, width, height, hints)
-        val bitmap = createBitmap(width, height)
+        val pixels = IntArray(width * height)
 
-        for (x in 0 until width) {
-            for (y in 0 until height) {
-                bitmap[x, y] =
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val color =
                     if (bitMatrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+                pixels[y * width + x] = color
             }
         }
-        bitmap
+
+        Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
     } catch (e: Exception) {
         e.printStackTrace()
         null

@@ -1,6 +1,7 @@
 package com.socketlink.android.authenticator
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +41,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
      */
     private suspend fun loadOtpEntries() {
         val stored = OtpStorage.loadOtpList()
+        Log.d("OtpViewModel", "Loaded ${stored.size} OTP entries from storage")
         _otpEntries.value = stored.map {
             it.copy(code = "") // empty code for now
         }
@@ -108,6 +110,25 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
             )
         )
         _otpEntries.value = _otpEntries.value + newEntry
+
+        viewModelScope.launch(Dispatchers.IO) {
+            OtpStorage.saveOtpList(_otpEntries.value)
+        }
+    }
+
+    fun addSecrets(secrets: List<OtpEntry>) {
+        val newEntries = secrets.map { secret ->
+            secret.copy(
+                code = OtpUtils.generateOtp(
+                    secret.secret,
+                    secret.digits,
+                    secret.algorithm,
+                    secret.period
+                )
+            )
+        }
+
+        _otpEntries.value = _otpEntries.value + newEntries
 
         viewModelScope.launch(Dispatchers.IO) {
             OtpStorage.saveOtpList(_otpEntries.value)
