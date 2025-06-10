@@ -1332,23 +1332,80 @@ fun ExportQRCodeScreen(
     navController: NavController,
     otpEntries: List<OtpEntry>
 ) {
+    /** Gson instance for JSON serialization, remembered to avoid unnecessary recreation */
     val gson = remember { Gson() }
-    val otpJson = remember(otpEntries) { gson.toJson(otpEntries) }
-    val chunkedJsonList = remember(otpJson) { splitStringIntoChunks(otpJson, maxChunkSize = 800) }
 
+    /** Maximum allowed JSON string size (character count) for each QR code chunk */
+    val maxJsonChunkSize = 1200  // You can adjust this value based on QR capacity tests
+
+    /**
+     * Splits the OTP entries into JSON chunks that fit under the max JSON chunk size.
+     * This prevents QR codes from exceeding the max data capacity.
+     *
+     * @param entries List of OTP entries to chunk
+     * @param maxChunkSize Maximum allowed JSON string length per chunk
+     * @return List of JSON strings, each representing a chunk of OTP entries
+     */
+    fun createJsonChunks(entries: List<OtpEntry>, maxChunkSize: Int): List<String> {
+        /** Mutable list holding lists of OTP entries for each chunk */
+        val chunks = mutableListOf<List<OtpEntry>>()
+
+        /** Current chunk under construction */
+        var currentChunk = mutableListOf<OtpEntry>()
+
+        /** Iterate through each OTP entry */
+        for (entry in entries) {
+            /** Temporarily add this entry to current chunk and serialize to JSON */
+            val testChunk = currentChunk + entry
+            val json = gson.toJson(testChunk)
+
+            /** If the JSON length is within allowed size, add entry to current chunk */
+            if (json.length <= maxChunkSize) {
+                currentChunk.add(entry)
+            } else {
+                /** Otherwise, close off current chunk (if not empty) and start a new chunk */
+                if (currentChunk.isNotEmpty()) {
+                    chunks.add(currentChunk)
+                }
+                currentChunk = mutableListOf(entry)
+            }
+        }
+
+        /** Add the last chunk if it contains any entries */
+        if (currentChunk.isNotEmpty()) {
+            chunks.add(currentChunk)
+        }
+
+        /** Convert each chunk (list of OTP entries) to its JSON string representation */
+        return chunks.map { gson.toJson(it) }
+    }
+
+    /** Create chunked JSON strings once from OTP entries */
+    val chunkedJsonList = remember(otpEntries) {
+        createJsonChunks(otpEntries, maxJsonChunkSize)
+    }
+
+    /** Holds the currently displayed QR code chunk index */
     var currentIndex by remember { mutableIntStateOf(0) }
+
+    /** Holds the Bitmap for the currently generated QR code */
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
+    /**
+     * Regenerate the QR code bitmap whenever currentIndex changes.
+     * This launches a coroutine in Compose scope, switching to background thread.
+     */
     LaunchedEffect(currentIndex) {
         qrBitmap = withContext(Dispatchers.Default) {
             generateQRCodeBitmap(chunkedJsonList[currentIndex], 600, 600)
         }
     }
 
+    /** Scaffold container with a top app bar and main content */
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Export") },
+                title = { Text("Export") }, /** Title text in the app bar */
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -1356,44 +1413,52 @@ fun ExportQRCodeScreen(
                 }
             )
         },
-        containerColor = MaterialTheme.colorScheme.background,
-        contentColor = MaterialTheme.colorScheme.onBackground
+        containerColor = MaterialTheme.colorScheme.background, /** Background color */
+        contentColor = MaterialTheme.colorScheme.onBackground /** Text and icon color */
     ) { paddingValues ->
+
+        /** Main vertical container with padding */
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 32.dp)
+                .padding(horizontal = 32.dp) /** Horizontal padding inside container */
         ) {
+            /** Box to fill vertical space and center QR code and related UI */
             Box(
                 modifier = Modifier
-                    .weight(1f)
+                    .weight(1f) /** Take up remaining vertical space */
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
+                /** Column for QR code and description text */
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                    verticalArrangement = Arrangement.spacedBy(24.dp) /** Space between children */
                 ) {
+                    /** Surface with elevation and rounded corners for QR code display */
                     Surface(
                         tonalElevation = 4.dp,
                         shadowElevation = 8.dp,
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .aspectRatio(1f)
+                            .aspectRatio(1f) /** Keep surface square */
                     ) {
+                        /** Box to center QR code bitmap or loading indicator */
                         Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
                             if (qrBitmap != null) {
+                                /** Display QR code image */
                                 Image(
                                     bitmap = qrBitmap!!.asImageBitmap(),
                                     contentDescription = "OTP Export QR Code",
                                     modifier = Modifier.fillMaxSize()
                                 )
                             } else {
+                                /** Show progress indicator while QR code is generating */
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(48.dp),
                                     color = MaterialTheme.colorScheme.primary
@@ -1402,6 +1467,7 @@ fun ExportQRCodeScreen(
                         }
                     }
 
+                    /** Text showing which QR code page is displayed */
                     Text(
                         text = if (qrBitmap != null) "QR Code ${currentIndex + 1} of ${chunkedJsonList.size}" else "Generating QR code...",
                         style = MaterialTheme.typography.titleMedium,
@@ -1410,12 +1476,14 @@ fun ExportQRCodeScreen(
                 }
             }
 
+            /** Row containing Previous and Next navigation buttons */
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp) /** Spacing between buttons */
             ) {
+                /** Previous button, disabled if at first chunk */
                 Button(
                     onClick = { if (currentIndex > 0) currentIndex-- },
                     modifier = Modifier.weight(1f),
@@ -1428,6 +1496,7 @@ fun ExportQRCodeScreen(
                     Text("Previous")
                 }
 
+                /** Next button, disabled if at last chunk */
                 Button(
                     onClick = { if (currentIndex < chunkedJsonList.size - 1) currentIndex++ },
                     modifier = Modifier.weight(1f),
@@ -1442,20 +1511,6 @@ fun ExportQRCodeScreen(
             }
         }
     }
-}
-
-/**
- * Screen to show QR code representing JSON of all OTP entries for export.
- */
-fun splitStringIntoChunks(input: String, maxChunkSize: Int): List<String> {
-    val chunks = mutableListOf<String>()
-    var index = 0
-    while (index < input.length) {
-        val end = minOf(index + maxChunkSize, input.length)
-        chunks.add(input.substring(index, end))
-        index = end
-    }
-    return chunks
 }
 
 /** Helper function to generate a QR code bitmap from string content */

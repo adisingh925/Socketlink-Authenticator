@@ -110,21 +110,20 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
         _otpEntries.value = _otpEntries.value + newEntry
 
         viewModelScope.launch(Dispatchers.IO) {
-            val all = OtpStorage.loadOtpList() + newEntry
-            OtpStorage.saveOtpList(all)
+            OtpStorage.saveOtpList(_otpEntries.value)
         }
     }
-
 
     /**
      * Deletes the given OTP and updates storage.
      */
     fun deleteSecret(otpToDelete: OtpEntry) {
+        // Update in-memory list by removing the entry
         _otpEntries.value = _otpEntries.value.filterNot { it.id == otpToDelete.id }
 
-        viewModelScope.launch {
-            val all = OtpStorage.loadOtpList().filterNot { it.id == otpToDelete.id }
-            OtpStorage.saveOtpList(all)
+        viewModelScope.launch(Dispatchers.IO) {
+            // Save the full updated list directly
+            OtpStorage.saveOtpList(_otpEntries.value)
         }
     }
 }
