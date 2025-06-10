@@ -265,7 +265,8 @@ class MainActivity : AppCompatActivity() {
 
                             Lifecycle.Event.ON_START -> {
                                 /** Check unlock option and elapsed time */
-                                val unlockSeconds = SettingPreferences.getUnlockOption(context) // in seconds
+                                val unlockSeconds =
+                                    SettingPreferences.getUnlockOption(context) // in seconds
                                 val unlockMillis = unlockSeconds * 1000L
                                 val now = System.currentTimeMillis()
 
@@ -1025,7 +1026,9 @@ fun SettingsScreen(navController: NavController) {
                             checkedThumbColor = Color.White,
                             checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
                             uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                            uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                alpha = 0.3f
+                            )
                         )
                     )
                 }
@@ -1712,10 +1715,18 @@ fun ExportQRCodeScreen(
                                         contentDescription = "QR Code",
                                         modifier = Modifier.fillMaxSize()
                                     )
-                                } ?: CircularProgressIndicator(
-                                    modifier = Modifier.size(48.dp),
-                                    color = colorScheme.primary
-                                )
+                                } ?: Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(colorScheme.surfaceVariant),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "Generating QR...",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
 
                             /** QR code index display */
