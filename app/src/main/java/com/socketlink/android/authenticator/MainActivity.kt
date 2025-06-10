@@ -190,6 +190,7 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.socketlink.android.authenticator.OtpUtils.parseOtpAuthUri
 import com.socketlink.android.authenticator.ui.theme.SocketlinkAuthenticatorTheme
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -510,6 +511,7 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun TransferCodesScreenWithAuth(navController: NavController) {
     /**
@@ -517,6 +519,16 @@ fun TransferCodesScreenWithAuth(navController: NavController) {
      * when user taps on export button
      */
     var triggerAuth by remember { mutableStateOf(false) }
+    val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
+    var cameraButtonClicked by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    LaunchedEffect(cameraPermissionState.status.isGranted, cameraButtonClicked) {
+        if (cameraButtonClicked && cameraPermissionState.status.isGranted) {
+            cameraButtonClicked = false
+            navController.navigate("scanner?mode=import")
+        }
+    }
 
     /**
      * Callback invoked when user clicks "Export"
@@ -565,7 +577,24 @@ fun TransferCodesScreenWithAuth(navController: NavController) {
         navController = navController,
         onExportClick = onExportClick,
         onImportClick = {
-            navController.navigate("scanner?mode=import")
+            cameraButtonClicked = true
+            when {
+                cameraPermissionState.status.isGranted -> Unit
+                cameraPermissionState.status.shouldShowRationale -> {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        cameraPermissionState.launchPermissionRequest()
+                    }
+                }
+
+                else -> {
+                    Toast.makeText(
+                        context,
+                        "Please enable camera permission in app settings",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    openAppSettings(context as Activity)
+                }
+            }
         }
     )
 }
@@ -605,12 +634,15 @@ fun BiometricAuthenticator(
 
     /** Check biometric availability and handle fallback if unavailable */
     if (trigger) {
-        when (biometricManager.canAuthenticate(
+        val canAuthenticate = biometricManager.canAuthenticate(
             BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        )) {
-            BiometricManager.BIOMETRIC_SUCCESS -> Unit // proceed normally
+        )
+        when (canAuthenticate) {
+            BiometricManager.BIOMETRIC_SUCCESS,
+            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> Unit
+
             else -> {
-                /** No biometric available, fallback to success */
+                // No lock on device, auto succeed
                 resetTrigger()
                 onAuthenticated()
                 return
