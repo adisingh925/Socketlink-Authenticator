@@ -80,6 +80,7 @@ import androidx.compose.material.FractionalThreshold
 import androidx.compose.material.SwipeToDismiss
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
@@ -105,6 +106,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -121,6 +123,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -249,26 +252,42 @@ class MainActivity : AppCompatActivity() {
                 /** main lifecycle */
                 val lifecycleOwner = LocalLifecycleOwner.current
 
-                /** state of app lock setting */
-                val (appLockEnabled, _) = rememberAppLockPreference()
+                /** state to record the timestamp of when the app goes to background */
+                var backgroundTimestamp by rememberSaveable { mutableStateOf<Long?>(null) }
 
                 DisposableEffect(lifecycleOwner) {
-                    /** Lifecycle observer to handle app going to background */
                     val observer = LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_STOP) {
-                            /** App going to background → lock the screen only if not already on auth */
-                            if (navController.currentDestination?.route != "auth") {
-                                if (appLockEnabled) {
-                                    navController.navigate("auth")
+                        when (event) {
+                            Lifecycle.Event.ON_STOP -> {
+                                /** Record time when going to background */
+                                backgroundTimestamp = System.currentTimeMillis()
+                            }
+
+                            Lifecycle.Event.ON_START -> {
+                                /** Check unlock option and elapsed time */
+                                val unlockSeconds = SettingPreferences.getUnlockOption(context) // in seconds
+                                val unlockMillis = unlockSeconds * 1000L
+                                val now = System.currentTimeMillis()
+
+                                if (unlockSeconds != -1 && backgroundTimestamp != null) {
+                                    val timeInBackground = now - backgroundTimestamp!!
+
+                                    if (timeInBackground >= unlockMillis) {
+                                        if (SettingPreferences.isAppLockEnabled(context)) {
+                                            if (navController.currentDestination?.route != "auth") {
+                                                navController.navigate("auth")
+                                            }
+                                        }
+                                    }
                                 }
                             }
+
+                            else -> {}
                         }
                     }
 
-                    /** Register the observer */
                     lifecycleOwner.lifecycle.addObserver(observer)
 
-                    /** Unregister on dispose */
                     onDispose {
                         lifecycleOwner.lifecycle.removeObserver(observer)
                     }
@@ -902,50 +921,70 @@ fun AuthenticationScreen(
     }
 }
 
-@Composable
-fun rememberAppLockPreference(): Pair<Boolean, (Boolean) -> Unit> {
-    /** Get current context to access SharedPreferences */
-    val context = LocalContext.current
+data class AppLockPreferences(
+    val appLockEnabled: Boolean,
+    val unlockOption: Int,
+    val setAppLockEnabled: (Boolean) -> Unit,
+    val setUnlockOption: (Int) -> Unit
+)
 
-    /** Get SharedPreferences named "settings_prefs" in private mode */
-    val prefs = context.getSharedPreferences("settings_prefs", Context.MODE_PRIVATE)
+object SettingPreferences {
+    private const val PREF_NAME = "settings_prefs"
+    private const val APP_LOCK_KEY = "app_lock_enabled"
+    private const val UNLOCK_OPTION_KEY = "unlock_option"
+    private const val DEFAULT_UNLOCK_OPTION = 0
 
-    /**
-     * Remember the current app lock state.
-     * Initialized from SharedPreferences or defaults to false
-     */
-    var appLockEnabled by remember {
-        mutableStateOf(prefs.getBoolean("app_lock_enabled", false))
+    /** Get whether app lock is enabled */
+    fun isAppLockEnabled(context: Context): Boolean {
+        return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(APP_LOCK_KEY, false)
     }
 
-    /**
-     * Lambda to save the app lock setting to SharedPreferences and update state
-     * @param enabled new boolean value indicating whether app lock is enabled
-     */
-    val saveAppLock: (Boolean) -> Unit = { enabled ->
-        prefs.edit {
-            putBoolean("app_lock_enabled", enabled) // Save the new value
-        }
-        appLockEnabled = enabled // Update Compose state to reflect change
+    /** Set whether app lock is enabled */
+    fun setAppLockEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(APP_LOCK_KEY, enabled)
+            .apply()
     }
 
-    /** Return current state and the function to update it */
-    return appLockEnabled to saveAppLock
+    /** Get selected unlock option */
+    fun getUnlockOption(context: Context): Int {
+        return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getInt(UNLOCK_OPTION_KEY, DEFAULT_UNLOCK_OPTION)
+    }
+
+    /** Set unlock option */
+    fun setUnlockOption(context: Context, option: Int) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
+            .putInt(UNLOCK_OPTION_KEY, option)
+            .apply()
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(navController: NavController) {
-    /** Get current App Lock setting and setter */
-    val (appLockEnabled, setAppLockEnabled) = rememberAppLockPreference()
+    val context = LocalContext.current
 
-    /** UI state: pending toggle after auth */
-    var togglePending by remember { mutableStateOf<Boolean?>(null) }
-
-    /** Trigger biometric flow only when toggle is attempted */
+    var appLockEnabled by remember { mutableStateOf(SettingPreferences.isAppLockEnabled(context)) }
     var triggerAuth by remember { mutableStateOf(false) }
+    var togglePending by remember { mutableStateOf(false) }
 
-    /** Scaffold with top app bar */
+    val unlockOptions = listOf(
+        "Immediately" to 0,
+        "After 10 seconds" to 10,
+        "After 1 minute" to 60,
+        "After 10 minutes" to 600,
+        "Never" to -1
+    )
+
+    var showDialog by rememberSaveable { mutableStateOf(false) }
+
+    val unlockOption = remember { mutableIntStateOf(SettingPreferences.getUnlockOption(context)) }
+
+    val selectedOptionText = unlockOptions.firstOrNull { it.second == unlockOption.intValue }?.first
+        ?: unlockOptions[0].first
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -964,7 +1003,6 @@ fun SettingsScreen(navController: NavController) {
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-            /** App Lock toggle setting item */
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -987,31 +1025,87 @@ fun SettingsScreen(navController: NavController) {
                             checkedThumbColor = Color.White,
                             checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
                             uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                alpha = 0.3f
-                            )
+                            uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                         )
                     )
                 }
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (appLockEnabled) {
+                ListItem(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDialog = true },
+                    headlineContent = { Text("Require unlock after app is invisible") },
+                    supportingContent = {
+                        Text(
+                            text = selectedOptionText,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Normal),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                )
+            }
         }
 
-        /** Biometric authentication triggered here */
-        if (triggerAuth && togglePending != null) {
+        if (triggerAuth) {
             BiometricAuthenticator(
                 trigger = triggerAuth,
                 onAuthenticated = {
-                    togglePending?.let { setAppLockEnabled(it) }
-                    togglePending = null
+                    appLockEnabled = togglePending
+                    SettingPreferences.setAppLockEnabled(context, togglePending)
                 },
-                onFailed = {
-                    togglePending = null
+                onFailed = {},
+                resetTrigger = { triggerAuth = false }
+            )
+        }
+
+        if (showDialog) {
+            AlertDialog(
+                onDismissRequest = { showDialog = false },
+                title = { Text("Require unlock after app is invisible") },
+                text = {
+                    Column {
+                        unlockOptions.forEach { (label, value) ->
+                            val selected = unlockOption.intValue == value
+                            val interactionSource = remember { MutableInteractionSource() }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(36.dp))
+                                    .clickable(
+                                        interactionSource = interactionSource,
+                                        indication = LocalIndication.current
+                                    ) {
+                                        unlockOption.intValue = value
+                                        SettingPreferences.setUnlockOption(context, value)
+                                        showDialog = false
+                                    }
+                                    .padding(vertical = 4.dp, horizontal = 8.dp)
+                            ) {
+                                RadioButton(
+                                    selected = selected,
+                                    onClick = {
+                                        unlockOption.intValue = value
+                                        SettingPreferences.setUnlockOption(context, value)
+                                        showDialog = false
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(label)
+                            }
+                        }
+                    }
                 },
-                resetTrigger = {
-                    triggerAuth = false
-                },
-                heading = "Authentication Required",
-                subheading = "Verify your identity to change this setting"
+                confirmButton = {
+                    TextButton(onClick = { showDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
             )
         }
     }
