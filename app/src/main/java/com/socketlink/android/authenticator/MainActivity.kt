@@ -80,7 +80,6 @@ import androidx.compose.material.FractionalThreshold
 import androidx.compose.material.SwipeToDismiss
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
@@ -106,7 +105,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -171,7 +169,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -187,6 +184,7 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
 import com.google.android.play.core.review.ReviewManagerFactory
+import com.google.android.play.core.review.model.ReviewErrorCode
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import com.google.zxing.BarcodeFormat
@@ -432,26 +430,25 @@ class MainActivity : AppCompatActivity() {
                                     onNavigateToSettings = { navController.navigate("settings") },
                                     onNavigateToTransfer = { navController.navigate("transfer") },
                                     onNavigateToFeedback = {
-                                        val reviewManager = ReviewManagerFactory.create(context)
+                                        val reviewManager = ReviewManagerFactory.create(this@MainActivity)
 
-                                        coroutineScope.launch {
-                                            val request = reviewManager.requestReviewFlow()
-                                            if (request.isSuccessful) {
-                                                val reviewInfo = request.result
-                                                reviewManager.launchReviewFlow(
-                                                    this@MainActivity,
-                                                    reviewInfo
-                                                )
+                                        reviewManager.requestReviewFlow().addOnCompleteListener { task ->
+                                            if (task.isSuccessful) {
+                                                val reviewInfo = task.result
+
+                                                reviewManager.launchReviewFlow(this@MainActivity, reviewInfo).addOnCompleteListener {
+                                                    // Flow complete. No indication whether review dialog was shown or used.
+                                                }
                                             } else {
-                                                /** Fallback to play store */
-                                                val intent = Intent(
+                                                // Fallback: Open Play Store page
+                                                val fallbackIntent = Intent(
                                                     Intent.ACTION_VIEW,
-                                                    Uri.parse("market://details?id=${context.packageName}")
+                                                    Uri.parse("market://details?id=${this@MainActivity.packageName}")
                                                 ).apply {
-                                                    setPackage("com.android.vending")  // Force open in Play Store app
+                                                    setPackage("com.android.vending")
                                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                                 }
-                                                context.startActivity(intent)
+                                                startActivity(fallbackIntent)
                                             }
                                         }
                                     }
