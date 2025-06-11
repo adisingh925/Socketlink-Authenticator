@@ -33,6 +33,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
@@ -80,6 +82,7 @@ import androidx.compose.material.FractionalThreshold
 import androidx.compose.material.SwipeToDismiss
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
@@ -124,6 +127,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -374,64 +378,41 @@ class MainActivity : AppCompatActivity() {
                             Scaffold(
                                 /** Floating buttons for camera and manual OTP */
                                 floatingActionButton = {
-                                    Column(
-                                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                                        horizontalAlignment = Alignment.End
-                                    ) {
-                                        /** FAB for launching camera scanner */
-                                        FloatingActionButton(
-                                            onClick = {
-                                                cameraButtonClicked = true
-                                                if (SettingPreferences.isCameraPermissionRequested(
-                                                        this@MainActivity
-                                                    )
-                                                ) {
-                                                    when {
-                                                        cameraPermissionState.status.isGranted -> Unit
-                                                        cameraPermissionState.status.shouldShowRationale -> {
-                                                            coroutineScope.launch {
-                                                                cameraPermissionState.launchPermissionRequest()
-                                                            }
-                                                        }
-
-                                                        else -> {
-                                                            Toast.makeText(
-                                                                context,
-                                                                "Please enable camera permission in app settings",
-                                                                Toast.LENGTH_LONG
-                                                            ).show()
-                                                            openAppSettings(context as Activity)
+                                    ExpandableFab(
+                                        onScanClick = {
+                                            cameraButtonClicked = true
+                                            if (SettingPreferences.isCameraPermissionRequested(this@MainActivity)) {
+                                                when {
+                                                    cameraPermissionState.status.isGranted -> Unit
+                                                    cameraPermissionState.status.shouldShowRationale -> {
+                                                        coroutineScope.launch {
+                                                            cameraPermissionState.launchPermissionRequest()
                                                         }
                                                     }
-                                                } else {
-                                                    SettingPreferences.setCameraPermissionRequested(
-                                                        this@MainActivity,
-                                                        true
-                                                    )
-                                                    coroutineScope.launch {
-                                                        cameraPermissionState.launchPermissionRequest()
+
+                                                    else -> {
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Please enable camera permission in app settings",
+                                                            Toast.LENGTH_LONG
+                                                        ).show()
+                                                        openAppSettings(context as Activity)
                                                     }
                                                 }
-                                            },
-                                            shape = RoundedCornerShape(12.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.PhotoCamera,
-                                                contentDescription = "Scan Barcode"
-                                            )
+                                            } else {
+                                                SettingPreferences.setCameraPermissionRequested(
+                                                    this@MainActivity,
+                                                    true
+                                                )
+                                                coroutineScope.launch {
+                                                    cameraPermissionState.launchPermissionRequest()
+                                                }
+                                            }
+                                        },
+                                        onAddClick = {
+                                            navController.navigate("add")
                                         }
-
-                                        /** FAB to add OTP manually */
-                                        FloatingActionButton(
-                                            onClick = { navController.navigate("add") },
-                                            shape = RoundedCornerShape(12.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Keyboard,
-                                                contentDescription = "Add OTP Manually"
-                                            )
-                                        }
-                                    }
+                                    )
                                 },
 
                                 /** Main screen container */
@@ -600,6 +581,62 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun ExpandableFab(
+    onScanClick: () -> Unit,
+    onAddClick: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val rotation by animateFloatAsState(targetValue = if (expanded) 45f else 0f, label = "FAB Rotation")
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.End,
+        modifier = Modifier.padding(bottom = 16.dp, end = 16.dp)
+    ) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut()
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                SmallFloatingActionButton(
+                    onClick = onScanClick,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PhotoCamera,
+                        contentDescription = "Scan Barcode",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                SmallFloatingActionButton(
+                    onClick = onAddClick,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Keyboard,
+                        contentDescription = "Add OTP Manually",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        FloatingActionButton(
+            onClick = { expanded = !expanded },
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = if (expanded) "Close" else "Open",
+                modifier = Modifier.rotate(rotation)
+            )
         }
     }
 }
