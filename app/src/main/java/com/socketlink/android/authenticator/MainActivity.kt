@@ -191,6 +191,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
+import com.socketlink.android.authenticator.MainActivity
 import com.socketlink.android.authenticator.OtpUtils.parseOtpAuthUri
 import com.socketlink.android.authenticator.ui.theme.SocketlinkAuthenticatorTheme
 import com.upokecenter.cbor.CBORObject
@@ -379,21 +380,34 @@ class MainActivity : AppCompatActivity() {
                                         FloatingActionButton(
                                             onClick = {
                                                 cameraButtonClicked = true
-                                                when {
-                                                    cameraPermissionState.status.isGranted -> Unit
-                                                    cameraPermissionState.status.shouldShowRationale -> {
-                                                        coroutineScope.launch {
-                                                            cameraPermissionState.launchPermissionRequest()
+                                                if (SettingPreferences.isCameraPermissionRequested(
+                                                        this@MainActivity
+                                                    )
+                                                ) {
+                                                    when {
+                                                        cameraPermissionState.status.isGranted -> Unit
+                                                        cameraPermissionState.status.shouldShowRationale -> {
+                                                            coroutineScope.launch {
+                                                                cameraPermissionState.launchPermissionRequest()
+                                                            }
+                                                        }
+
+                                                        else -> {
+                                                            Toast.makeText(
+                                                                context,
+                                                                "Please enable camera permission in app settings",
+                                                                Toast.LENGTH_LONG
+                                                            ).show()
+                                                            openAppSettings(context as Activity)
                                                         }
                                                     }
-
-                                                    else -> {
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Please enable camera permission in app settings",
-                                                            Toast.LENGTH_LONG
-                                                        ).show()
-                                                        openAppSettings(context as Activity)
+                                                } else {
+                                                    SettingPreferences.setCameraPermissionRequested(
+                                                        this@MainActivity,
+                                                        true
+                                                    )
+                                                    coroutineScope.launch {
+                                                        cameraPermissionState.launchPermissionRequest()
                                                     }
                                                 }
                                             },
@@ -430,27 +444,32 @@ class MainActivity : AppCompatActivity() {
                                     onNavigateToSettings = { navController.navigate("settings") },
                                     onNavigateToTransfer = { navController.navigate("transfer") },
                                     onNavigateToFeedback = {
-                                        val reviewManager = ReviewManagerFactory.create(this@MainActivity)
+                                        val reviewManager =
+                                            ReviewManagerFactory.create(this@MainActivity)
 
-                                        reviewManager.requestReviewFlow().addOnCompleteListener { task ->
-                                            if (task.isSuccessful) {
-                                                val reviewInfo = task.result
+                                        reviewManager.requestReviewFlow()
+                                            .addOnCompleteListener { task ->
+                                                if (task.isSuccessful) {
+                                                    val reviewInfo = task.result
 
-                                                reviewManager.launchReviewFlow(this@MainActivity, reviewInfo).addOnCompleteListener {
-                                                    // Flow complete. No indication whether review dialog was shown or used.
+                                                    reviewManager.launchReviewFlow(
+                                                        this@MainActivity,
+                                                        reviewInfo
+                                                    ).addOnCompleteListener {
+                                                        // Flow complete. No indication whether review dialog was shown or used.
+                                                    }
+                                                } else {
+                                                    // Fallback: Open Play Store page
+                                                    val fallbackIntent = Intent(
+                                                        Intent.ACTION_VIEW,
+                                                        Uri.parse("market://details?id=${this@MainActivity.packageName}")
+                                                    ).apply {
+                                                        setPackage("com.android.vending")
+                                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                    }
+                                                    startActivity(fallbackIntent)
                                                 }
-                                            } else {
-                                                // Fallback: Open Play Store page
-                                                val fallbackIntent = Intent(
-                                                    Intent.ACTION_VIEW,
-                                                    Uri.parse("market://details?id=${this@MainActivity.packageName}")
-                                                ).apply {
-                                                    setPackage("com.android.vending")
-                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                }
-                                                startActivity(fallbackIntent)
                                             }
-                                        }
                                     }
                                 )
                             }
@@ -651,21 +670,28 @@ fun TransferCodesScreenWithAuth(navController: NavController) {
         onExportClick = onExportClick,
         onImportClick = {
             cameraButtonClicked = true
-            when {
-                cameraPermissionState.status.isGranted -> Unit
-                cameraPermissionState.status.shouldShowRationale -> {
-                    CoroutineScope(Dispatchers.IO).launch {
-                        cameraPermissionState.launchPermissionRequest()
+            if (SettingPreferences.isCameraPermissionRequested(context)) {
+                when {
+                    cameraPermissionState.status.isGranted -> Unit
+                    cameraPermissionState.status.shouldShowRationale -> {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            cameraPermissionState.launchPermissionRequest()
+                        }
+                    }
+
+                    else -> {
+                        Toast.makeText(
+                            context,
+                            "Please enable camera permission in app settings",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        openAppSettings(context as Activity)
                     }
                 }
-
-                else -> {
-                    Toast.makeText(
-                        context,
-                        "Please enable camera permission in app settings",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    openAppSettings(context as Activity)
+            } else {
+                SettingPreferences.setCameraPermissionRequested(context, true)
+                CoroutineScope(Dispatchers.IO).launch {
+                    cameraPermissionState.launchPermissionRequest()
                 }
             }
         }
@@ -919,17 +945,12 @@ fun AuthenticationScreen(
     }
 }
 
-data class AppLockPreferences(
-    val appLockEnabled: Boolean,
-    val unlockOption: Int,
-    val setAppLockEnabled: (Boolean) -> Unit,
-    val setUnlockOption: (Int) -> Unit
-)
-
 object SettingPreferences {
     private const val PREF_NAME = "settings_prefs"
+
     private const val APP_LOCK_KEY = "app_lock_enabled"
     private const val UNLOCK_OPTION_KEY = "unlock_option"
+    private const val CAMERA_PERMISSION_REQUESTED_KEY = "camera_permission_requested"
     private const val DEFAULT_UNLOCK_OPTION = 0
 
     /** Get whether app lock is enabled */
@@ -955,6 +976,19 @@ object SettingPreferences {
     fun setUnlockOption(context: Context, option: Int) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
             .putInt(UNLOCK_OPTION_KEY, option)
+            .apply()
+    }
+
+    /** Get whether camera permission was requested before */
+    fun isCameraPermissionRequested(context: Context): Boolean {
+        return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(CAMERA_PERMISSION_REQUESTED_KEY, false)
+    }
+
+    /** Set camera permission requested flag */
+    fun setCameraPermissionRequested(context: Context, requested: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(CAMERA_PERMISSION_REQUESTED_KEY, requested)
             .apply()
     }
 }
