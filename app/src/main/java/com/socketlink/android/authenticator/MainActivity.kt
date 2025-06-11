@@ -236,7 +236,8 @@ class MainActivity : AppCompatActivity() {
                 val progressMap by otpViewModel.progressMap.collectAsState()
 
                 /** Camera permission handler */
-                val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
+                val cameraPermissionState =
+                    rememberPermissionState(android.Manifest.permission.CAMERA)
 
                 /** Coroutine scope for launching suspend functions */
                 val coroutineScope = rememberCoroutineScope()
@@ -313,8 +314,11 @@ class MainActivity : AppCompatActivity() {
                      */
                     AnimatedNavHost(
                         navController = navController,
-                        startDestination = "auth",
-
+                        startDestination = if (SettingPreferences.isAppLockEnabled(this@MainActivity)) {
+                            "auth"
+                        } else {
+                            "main"
+                        },
                         /** Enter transition when navigating forward */
                         enterTransition = {
                             slideInHorizontally(
