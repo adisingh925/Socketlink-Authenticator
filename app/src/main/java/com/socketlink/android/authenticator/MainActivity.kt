@@ -184,14 +184,12 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
 import com.google.android.play.core.review.ReviewManagerFactory
-import com.google.android.play.core.review.model.ReviewErrorCode
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
-import com.socketlink.android.authenticator.MainActivity
 import com.socketlink.android.authenticator.OtpUtils.parseOtpAuthUri
 import com.socketlink.android.authenticator.ui.theme.SocketlinkAuthenticatorTheme
 import com.upokecenter.cbor.CBORObject
@@ -447,8 +445,7 @@ class MainActivity : AppCompatActivity() {
                                     onNavigateToSettings = { navController.navigate("settings") },
                                     onNavigateToTransfer = { navController.navigate("transfer") },
                                     onNavigateToFeedback = {
-                                        val reviewManager =
-                                            ReviewManagerFactory.create(this@MainActivity)
+                                        val reviewManager = ReviewManagerFactory.create(this@MainActivity)
 
                                         reviewManager.requestReviewFlow()
                                             .addOnCompleteListener { task ->
