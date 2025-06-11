@@ -88,6 +88,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.FlashlightOff
 import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Menu
@@ -1332,54 +1333,76 @@ fun OtpScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
-                items(
-                    items = filteredEntries,
-                    key = { it.id }
-                ) { otp ->
-                    /** Progress value for the OTP */
-                    val progress = progressMap[otp.id] ?: 1f
-
-                    /** Remember dismiss state for swipe-to-dismiss functionality */
-                    val dismissState = rememberDismissState(
-                        confirmStateChange = { dismissValue ->
-                            if (dismissValue == DismissValue.DismissedToStart) {
-                                /** Instead of deleting immediately, show confirm dialog */
-                                otpPendingDeletion = otp
-                                /** Prevent automatic dismiss */
-                                false
-                            } else false
-                        }
-                    )
-
-                    /** Swipe to dismiss composable wrapping each OTP card */
-                    SwipeToDismiss(
-                        state = dismissState,
-                        directions = setOf(DismissDirection.EndToStart),
-                        dismissThresholds = { FractionalThreshold(0.8f) },
-                        background = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(MaterialTheme.colorScheme.surface)
-                                    .padding(horizontal = 20.dp),
-                                contentAlignment = Alignment.CenterEnd
+                if (filteredEntries.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillParentMaxSize(), // Fills the remaining space in LazyColumn
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "Delete",
-                                    tint = MaterialTheme.colorScheme.primary
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = "No OTP",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "No OTP codes yet!",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                                 )
                             }
-                        },
-                        modifier = Modifier
-                            .padding(vertical = 8.dp)
-                            .animateItemPlacement()
-                    ) {
-                        OtpCard(
-                            otp = otp,
-                            progress = progress,
-                            modifier = Modifier.fillMaxWidth(),
+                        }
+                    }
+                } else {
+                    items(
+                        items = filteredEntries,
+                        key = { it.id }
+                    ) { otp ->
+                        val progress = progressMap[otp.id] ?: 1f
+
+                        val dismissState = rememberDismissState(
+                            confirmStateChange = { dismissValue ->
+                                if (dismissValue == DismissValue.DismissedToStart) {
+                                    otpPendingDeletion = otp
+                                    false
+                                } else false
+                            }
                         )
+
+                        SwipeToDismiss(
+                            state = dismissState,
+                            directions = setOf(DismissDirection.EndToStart),
+                            dismissThresholds = { FractionalThreshold(0.8f) },
+                            background = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(MaterialTheme.colorScheme.surface)
+                                        .padding(horizontal = 20.dp),
+                                    contentAlignment = Alignment.CenterEnd
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            },
+                            modifier = Modifier
+                                .padding(vertical = 8.dp)
+                                .animateItemPlacement()
+                        ) {
+                            OtpCard(
+                                otp = otp,
+                                progress = progress,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
             }
@@ -1711,13 +1734,13 @@ fun ExportQRCodeScreen(
                             Icon(
                                 Icons.Outlined.Inbox,
                                 contentDescription = null,
-                                tint = colorScheme.onSurfaceVariant,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier
                                     .size(120.dp)
                                     .padding(bottom = 16.dp)
                             )
                             Text(
-                                "Nothing to export",
+                                "Nothing to export!",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = colorScheme.onSurfaceVariant
                             )
