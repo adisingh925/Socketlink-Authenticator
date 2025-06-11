@@ -236,8 +236,7 @@ class MainActivity : AppCompatActivity() {
                 val progressMap by otpViewModel.progressMap.collectAsState()
 
                 /** Camera permission handler */
-                val cameraPermissionState =
-                    rememberPermissionState(android.Manifest.permission.CAMERA)
+                val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
 
                 /** Coroutine scope for launching suspend functions */
                 val coroutineScope = rememberCoroutineScope()
