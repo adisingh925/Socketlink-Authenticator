@@ -117,27 +117,21 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addSecrets(secrets: List<OtpEntry>) {
-        val existingIds = _otpEntries.value.map { it.id }.toSet()
-
-        val newEntries = secrets
-            .filter { it.id !in existingIds }
-            .map { secret ->
-                secret.copy(
-                    code = OtpUtils.generateOtp(
-                        secret.secret,
-                        secret.digits,
-                        secret.algorithm,
-                        secret.period
-                    )
+        val newEntries = secrets.map { secret ->
+            secret.copy(
+                code = OtpUtils.generateOtp(
+                    secret.secret,
+                    secret.digits,
+                    secret.algorithm,
+                    secret.period
                 )
-            }
+            )
+        }
 
-        if (newEntries.isNotEmpty()) {
-            _otpEntries.value = _otpEntries.value + newEntries
+        _otpEntries.value = _otpEntries.value + newEntries
 
-            viewModelScope.launch(Dispatchers.IO) {
-                OtpStorage.saveOtpList(_otpEntries.value)
-            }
+        viewModelScope.launch(Dispatchers.IO) {
+            OtpStorage.saveOtpList(_otpEntries.value)
         }
     }
 
