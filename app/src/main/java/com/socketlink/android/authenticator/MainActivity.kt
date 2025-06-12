@@ -93,7 +93,6 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.FlashlightOff
 import androidx.compose.material.icons.filled.FlashlightOn
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Menu
@@ -117,7 +116,6 @@ import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -143,7 +141,6 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -211,7 +208,6 @@ import com.socketlink.android.authenticator.ui.theme.SocketlinkAuthenticatorThem
 import com.upokecenter.cbor.CBORObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
