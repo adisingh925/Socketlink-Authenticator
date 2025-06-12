@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Base64
@@ -85,6 +86,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
@@ -97,8 +99,10 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.rememberDismissState
@@ -107,12 +111,16 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -134,6 +142,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -142,6 +151,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -200,6 +210,7 @@ import com.socketlink.android.authenticator.ui.theme.SocketlinkAuthenticatorThem
 import com.upokecenter.cbor.CBORObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -427,7 +438,8 @@ class MainActivity : AppCompatActivity() {
                                     onNavigateToSettings = { navController.navigate("settings") },
                                     onNavigateToTransfer = { navController.navigate("transfer") },
                                     onNavigateToFeedback = {
-                                        val reviewManager = ReviewManagerFactory.create(this@MainActivity)
+                                        val reviewManager =
+                                            ReviewManagerFactory.create(this@MainActivity)
 
                                         reviewManager.requestReviewFlow()
                                             .addOnCompleteListener { task ->
@@ -572,10 +584,18 @@ class MainActivity : AppCompatActivity() {
                             TransferCodesScreenWithAuth(navController)
                         }
 
-                        composable("export") {
+                        composable("selectCodes") {
+                            SelectOtpForExportScreen(
+                                navController = navController,
+                                otpEntries = otpEntries,
+                                otpViewModel = otpViewModel
+                            )
+                        }
+
+                        composable("exportSelection") {
                             ExportQRCodeScreen(
                                 navController = navController,
-                                otpEntries = otpEntries
+                                otpEntries = otpViewModel.selectedOtpEntries
                             )
                         }
                     }
@@ -591,7 +611,10 @@ fun ExpandableFab(
     onAddClick: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val rotation by animateFloatAsState(targetValue = if (expanded) 45f else 0f, label = "FAB Rotation")
+    val rotation by animateFloatAsState(
+        targetValue = if (expanded) 45f else 0f,
+        label = "FAB Rotation"
+    )
 
     Column(
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -673,7 +696,7 @@ fun TransferCodesScreenWithAuth(navController: NavController) {
      * Resets trigger and navigates to export screen
      */
     val onAuthenticated = {
-        navController.navigate("export") // Navigate only after successful auth
+        navController.navigate("selectCodes") // Navigate only after successful auth
     }
 
     /**
@@ -824,18 +847,31 @@ fun BiometricAuthenticator(
         BiometricPrompt(activity, ContextCompat.getMainExecutor(context), callback)
     }
 
+    val supportsBiometricPrompt = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+
     /**
      * Build the prompt information for the biometric dialog.
      * Cache it with 'remember' so it doesn't get recreated unnecessarily.
      */
     val promptInfo = remember {
-        BiometricPrompt.PromptInfo.Builder()
-            .setTitle(heading)
-            .setSubtitle(subheading)
-            .setAllowedAuthenticators(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
-            )
-            .build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // For API 30+
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle(heading)
+                .setSubtitle(subheading)
+                .setAllowedAuthenticators(
+                    BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                )
+                .build()
+        } else {
+            // For API 29 and below
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle(heading)
+                .setSubtitle(subheading)
+                .setDeviceCredentialAllowed(true) // Deprecated but required for pre-API 30
+                .build()
+        }
     }
 
     /**
@@ -845,22 +881,34 @@ fun BiometricAuthenticator(
      */
     LaunchedEffect(trigger, isResumed) {
         if (trigger && isResumed) {
-            // Check if biometric authentication or device credentials are available
-            val canAuthenticate = biometricManager.canAuthenticate(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
-            )
-            when (canAuthenticate) {
-                BiometricManager.BIOMETRIC_SUCCESS,
-                BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
-                    // Launch biometric prompt
-                    biometricPrompt.authenticate(promptInfo)
+            if (supportsBiometricPrompt) {
+                // Check if biometric authentication or device credentials are available
+                val canAuthenticate = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    biometricManager.canAuthenticate(
+                        BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                    )
+                } else {
+                    biometricManager.canAuthenticate() // Legacy call for API < 30
                 }
 
-                else -> {
-                    // If device has no biometric or lock, auto succeed
-                    resetTrigger()
-                    onAuthenticated()
+                when (canAuthenticate) {
+                    BiometricManager.BIOMETRIC_SUCCESS,
+                    BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
+                        // Launch biometric prompt
+                        biometricPrompt.authenticate(promptInfo)
+                    }
+
+                    else -> {
+                        // If device has no biometric or lock, auto succeed
+                        resetTrigger()
+                        onAuthenticated()
+                    }
                 }
+            } else {
+                // Fallback for devices without BiometricPrompt support
+                resetTrigger()
+                onAuthenticated()
             }
         }
     }
@@ -1674,6 +1722,162 @@ private fun createCompressedChunks(entries: List<OtpEntry>, maxBytes: Int): List
     }
 
     return chunks.map { encodeEntriesToBase64(it) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SelectOtpForExportScreen(
+    navController: NavController,
+    otpEntries: List<OtpEntry>,
+    otpViewModel: OtpViewModel
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val selectedSet = remember { mutableStateListOf<OtpEntry>() }
+    var loadedOTPs by remember { mutableStateOf(emptyList<OtpEntry>()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.Default) {
+            loadedOTPs = otpEntries
+        }
+        isLoading = false
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Select codes") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (!isLoading && loadedOTPs.isNotEmpty()) {
+                        val allSelected = selectedSet.size == loadedOTPs.size
+                        IconButton(
+                            onClick = {
+                                if (allSelected) selectedSet.clear()
+                                else {
+                                    selectedSet.clear()
+                                    selectedSet.addAll(loadedOTPs)
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = if (allSelected) Icons.Default.ClearAll else Icons.Default.SelectAll,
+                                contentDescription = if (allSelected) "Clear All" else "Select All"
+                            )
+                        }
+                    }
+                }
+            )
+        },
+        floatingActionButton = {
+            if (selectedSet.isNotEmpty()) {
+                ExtendedFloatingActionButton(
+                    text = { Text("Export (${selectedSet.size})") },
+                    icon = { Icon(Icons.Default.Upload, contentDescription = null) },
+                    onClick = {
+                        val entriesToExport = selectedSet.toList()
+                        otpViewModel.selectedOtpEntries = entriesToExport
+                        navController.navigate("exportSelection") {
+                            popUpTo("main") {
+                                inclusive = false
+                            }
+                            launchSingleTop = true
+                        }
+
+                        selectedSet.clear()
+                    },
+                    containerColor = colorScheme.primary,
+                    contentColor = colorScheme.onPrimary,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        },
+        containerColor = colorScheme.background,
+        contentColor = colorScheme.onBackground
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            when {
+                isLoading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = colorScheme.primary)
+                    }
+                }
+
+                loadedOTPs.isEmpty() -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No OTP entries available", color = colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                else -> {
+                    LazyColumn(
+                        contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp)
+                    ) {
+                        items(loadedOTPs) { otp ->
+                            val isSelected = otp in selectedSet
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        if (isSelected) selectedSet.remove(otp)
+                                        else selectedSet.add(otp)
+                                    },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected)
+                                        colorScheme.primaryContainer
+                                    else
+                                        MaterialTheme.colorScheme.surface
+                                ),
+                                border = BorderStroke(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = null,
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = colorScheme.primary
+                                        )
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            text = otp.codeName,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

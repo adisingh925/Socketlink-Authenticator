@@ -2,6 +2,9 @@ package com.socketlink.android.authenticator
 
 import android.app.Application
 import android.util.Log
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +25,8 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _progressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
     val progressMap: StateFlow<Map<String, Float>> = _progressMap
+
+    var selectedOtpEntries by mutableStateOf<List<OtpEntry>>(emptyList())
 
     init {
         // Initialize DataStore securely
