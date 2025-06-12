@@ -531,8 +531,7 @@ class MainActivity : AppCompatActivity() {
 
                                     "import" -> {
                                         withContext(Dispatchers.IO) {
-                                            val compressedBytes =
-                                                Base64.decode(code, Base64.NO_WRAP)
+                                            val compressedBytes = Base64.decode(code, Base64.NO_WRAP)
 
                                             val inflater = Inflater()
                                             try {
@@ -573,7 +572,10 @@ class MainActivity : AppCompatActivity() {
                                     }
                                 }
 
-                                navController.popBackStack()
+                                navController.navigate("main") {
+                                    popUpTo(0) { inclusive = true }
+                                    launchSingleTop = true
+                                }
                             }
                         }
 
@@ -1747,7 +1749,7 @@ fun SelectOtpForExportScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Select codes") },
+                title = { Text("Select Codes") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -2042,13 +2044,6 @@ fun ExportQRCodeScreen(
                                     )
                                 }
                             }
-
-                            /** QR code index display */
-                            Text(
-                                "QR Code ${currentIndex + 1} of ${compressedChunks.size}",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = colorScheme.primary
-                            )
                         }
                     }
                 }
