@@ -105,6 +105,7 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.rememberDismissState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -1429,14 +1430,14 @@ fun OtpScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Info,
+                                    imageVector = Icons.Outlined.Info,
                                     contentDescription = "No OTP",
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(48.dp)
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "No OTP codes yet!",
+                                    text = "It’s a little empty in here!",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                                 )
@@ -1819,7 +1820,25 @@ fun SelectOtpForExportScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("No OTP entries available", color = colorScheme.onSurfaceVariant)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Info,
+                                contentDescription = "Nothing to export",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Nothing to export!",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                        }
                     }
                 }
 
