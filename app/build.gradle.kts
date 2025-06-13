@@ -83,4 +83,6 @@ dependencies {
     implementation(libs.review)
     implementation(libs.zxing.android.embedded)
     implementation(libs.cbor)
+    implementation(libs.google.firebase.firestore)
+    implementation(libs.guava)
 }
