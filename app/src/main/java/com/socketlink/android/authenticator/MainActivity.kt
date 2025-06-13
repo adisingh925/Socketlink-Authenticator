@@ -549,7 +549,6 @@ class MainActivity : AppCompatActivity() {
                                                 for (i in 0 until cborArray.size()) {
                                                     val obj = cborArray.get(i)
                                                     val otpEntry = OtpEntry(
-                                                        id = obj["i"].AsString(),
                                                         codeName = obj["l"].AsString(),
                                                         secret = obj["s"].AsString(),
                                                         code = "",
@@ -1679,7 +1678,6 @@ private fun encodeEntriesToBase64(entries: List<OtpEntry>): String {
     val cborArray = CBORObject.NewArray()
     entries.forEach {
         val obj = CBORObject.NewMap()
-        obj.Add("i", it.id)
         obj.Add("l", it.codeName)
         obj.Add("s", it.secret)
         obj.Add("t", it.algorithm)
