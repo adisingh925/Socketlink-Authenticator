@@ -1479,7 +1479,7 @@ fun OtpScreen(
                             },
                             modifier = Modifier
                                 .padding(vertical = 8.dp)
-                                .animateItemPlacement()
+                                .animateItem()
                         ) {
                             OtpCard(
                                 otp = otp,
