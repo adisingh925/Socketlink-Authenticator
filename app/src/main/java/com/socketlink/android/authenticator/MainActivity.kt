@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.IntentSender
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
@@ -14,8 +15,14 @@ import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.ManagedActivityResultLauncher
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.ActivityResult
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
@@ -83,6 +90,7 @@ import androidx.compose.material.FractionalThreshold
 import androidx.compose.material.SwipeToDismiss
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
@@ -104,6 +112,7 @@ import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.outlined.Inbox
@@ -170,6 +179,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
@@ -197,12 +207,20 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import coil.compose.rememberAsyncImagePainter
 import com.google.accompanist.navigation.animation.AnimatedNavHost
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
+import com.google.android.gms.auth.api.identity.BeginSignInRequest
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.play.core.review.ReviewManagerFactory
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.auth
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import com.google.zxing.BarcodeFormat
@@ -252,9 +270,6 @@ class MainActivity : AppCompatActivity() {
                 /** Progress map for each OTP entry (e.g., countdown animation progress) */
                 val progressMap by otpViewModel.progressMap.collectAsState()
 
-                /** Camera permission handler */
-
-
                 /** Context for showing Toasts or launching settings */
                 val context = LocalContext.current
 
@@ -263,6 +278,24 @@ class MainActivity : AppCompatActivity() {
 
                 /** state to record the timestamp of when the app goes to background */
                 var backgroundTimestamp by rememberSaveable { mutableStateOf<Long?>(null) }
+
+                // In your Activity or Composable (remember to use rememberLauncherForActivityResult in Compose):
+                val launcher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.StartIntentSenderForResult()
+                ) { result ->
+                    if (result.resultCode == RESULT_OK) {
+                        val credential = Identity.getSignInClient(this)
+                            .getSignInCredentialFromIntent(result.data)
+                        val idToken = credential.googleIdToken
+                        val email = credential.id
+                        val photo = credential.profilePictureUri
+                        // TODO: Use idToken and email to authenticate with your backend or Firebase
+                        Log.d("GoogleSignIn", "ID Token: $idToken, Email: $email, Photo: $photo")
+                        firebaseAuthWithGoogle(idToken.toString(), otpViewModel, this)
+                    } else {
+                        Log.d("GoogleSignIn", "Sign-in failed or cancelled")
+                    }
+                }
 
                 DisposableEffect(lifecycleOwner) {
                     val observer = LifecycleEventObserver { _, event ->
@@ -376,7 +409,9 @@ class MainActivity : AppCompatActivity() {
                                 otpEntries = otpEntries,
                                 progressMap = progressMap,
                                 otpViewModel = otpViewModel,
-                                navController = navController
+                                navController = navController,
+                                launcher = launcher,
+                                auth = otpViewModel.auth,
                             )
                         }
 
@@ -516,6 +551,45 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+}
+
+fun launchGoogleOneTapSignIn(
+    context: Context,
+    launcher: ActivityResultLauncher<IntentSenderRequest>
+) {
+    val signInClient = Identity.getSignInClient(context)
+
+    val signInRequest = BeginSignInRequest.builder()
+        .setGoogleIdTokenRequestOptions(
+            BeginSignInRequest.GoogleIdTokenRequestOptions.builder()
+                .setSupported(true)
+                .setServerClientId(context.getString(R.string.default_web_client_id))
+                .setFilterByAuthorizedAccounts(false)
+                .build()
+        ).build()
+
+    signInClient.beginSignIn(signInRequest).addOnSuccessListener { result ->
+        try {
+            launcher.launch(
+                IntentSenderRequest.Builder(result.pendingIntent.intentSender).build()
+            )
+        } catch (e: IntentSender.SendIntentException) {
+            Log.e("GoogleSignIn", "Couldn't launch One Tap UI: ${e.localizedMessage}")
+        }
+    }.addOnFailureListener { e ->
+        Log.e("GoogleSignIn", "One Tap sign-in failed: ${e.localizedMessage}")
+    }
+}
+
+private fun firebaseAuthWithGoogle(idToken: String, otpViewModel: OtpViewModel, context: Context) {
+    val credential = GoogleAuthProvider.getCredential(idToken, null)
+    otpViewModel.auth.signInWithCredential(credential).addOnSuccessListener {
+        Log.d("FirebaseAuth", "Sign-in successful")
+        otpViewModel.fetchAllFromCloud()
+    }.addOnFailureListener { e ->
+        Log.e("FirebaseAuth", "Sign-in failed: ${e.localizedMessage}")
+        Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
     }
 }
 
@@ -1105,7 +1179,9 @@ fun OtpScreen(
     otpEntries: List<OtpEntry>,
     progressMap: Map<String, Float>,
     otpViewModel: OtpViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
-    navController: NavController
+    navController: NavController,
+    launcher: ManagedActivityResultLauncher<IntentSenderRequest, ActivityResult>,
+    auth: FirebaseAuth
 ) {
     /** Focus manager to handle keyboard focus */
     val context = LocalContext.current
@@ -1356,24 +1432,50 @@ fun OtpScreen(
                                     }
 
                                     if (!expanded) {
-                                        if (isSyncing) {
-                                            IconButton(onClick = {
-
-                                            }) {
+                                        if(otpViewModel.auth.currentUser == null) {
+                                            IconButton(onClick = { /* Disabled while syncing */ }) {
                                                 Icon(
-                                                    imageVector = Icons.Default.CloudSync,
+                                                    imageVector = Icons.Default.SyncProblem,
                                                     contentDescription = "Syncing",
-                                                    tint = MaterialTheme.colorScheme.secondary
+                                                    tint = MaterialTheme.colorScheme.error
                                                 )
                                             }
                                         } else {
-                                            IconButton(onClick = {
+                                            if (isSyncing) {
+                                                IconButton(onClick = { /* Disabled while syncing */ }) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.CloudSync,
+                                                        contentDescription = "Syncing",
+                                                        tint = MaterialTheme.colorScheme.secondary
+                                                    )
+                                                }
+                                            } else {
+                                                IconButton(onClick = { /* Trigger sync */ }) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.CloudDone,
+                                                        contentDescription = "Sync",
+                                                        tint = MaterialTheme.colorScheme.secondary
+                                                    )
+                                                }
+                                            }
+                                        }
 
-                                            }) {
+                                        IconButton(onClick = {
+                                            launchGoogleOneTapSignIn(context, launcher)
+                                        }) {
+                                            if (auth.currentUser != null) {
+                                                Image(
+                                                    painter = rememberAsyncImagePainter(auth.currentUser?.photoUrl),
+                                                    contentDescription = "User Profile Picture",
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.size(32.dp).clip(CircleShape)
+                                                )
+                                            } else {
                                                 Icon(
-                                                    imageVector = Icons.Default.CloudDone,
-                                                    contentDescription = "Sync",
-                                                    tint = MaterialTheme.colorScheme.secondary
+                                                    imageVector = Icons.Default.AccountCircle,
+                                                    contentDescription = "Account",
+                                                    tint = MaterialTheme.colorScheme.secondary,
+                                                    modifier = Modifier.size(32.dp)
                                                 )
                                             }
                                         }

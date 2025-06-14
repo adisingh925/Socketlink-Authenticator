@@ -12,7 +12,20 @@
           "package_name": "com.socketlink.android.authenticator"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "687933428742-sih1lld91k3o38mqo2hbsep76g0e6f7k.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.socketlink.android.authenticator",
+            "certificate_hash": "5cb302825f4485c57d61698dcd98ca9c2730a068"
+          }
+        },
+        {
+          "client_id": "687933428742-tb8h3cvq0m8seop8frljisvtjkjm41mr.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyClxwbIAEKj0aSmGyevfkGKmHV2jhxOIV4"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "687933428742-tb8h3cvq0m8seop8frljisvtjkjm41mr.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
