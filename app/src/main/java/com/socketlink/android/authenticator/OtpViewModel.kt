@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.application
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
@@ -18,7 +19,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * ViewModel to manage OTP entries and their progress for TOTP codes.
@@ -40,6 +40,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     private var firestoreListener: ListenerRegistration? = null
 
     val isSyncing = MutableStateFlow(false)
+    var runningSyncProcesses = 0
 
     init {
         // Initialize Firebase App
@@ -56,6 +57,32 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
         }.invokeOnCompletion {
             toggleCloudSync(Utils.isCloudSyncEnabled(application.applicationContext))
         }
+    }
+
+    private fun startSyncing() {
+        if (runningSyncProcesses > 0) {
+            Log.w("OtpViewModel", "Already syncing, cannot start another process")
+            return
+        }
+
+        runningSyncProcesses++
+        isSyncing.value = true
+    }
+
+    private fun stopSyncing() {
+        if (runningSyncProcesses <= 0) {
+            Log.w("OtpViewModel", "stopSyncing called but no running sync processes")
+            return
+        }
+
+        runningSyncProcesses--
+
+        if (runningSyncProcesses > 0) {
+            Log.d("OtpViewModel", "Sync process stopped, still running $runningSyncProcesses processes")
+            return
+        }
+
+        isSyncing.value = false
     }
 
     /**
@@ -185,10 +212,10 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
      * and ignores entries that are identical between local and cloud.
      */
     fun startListeningForCloudChanges() {
-        isSyncing.value = true
+        startSyncing()
 
         if (firestoreListener != null) {
-            isSyncing.value = false
+            stopSyncing()
             Log.d("FirebaseSync", "Listener already active")
             return
         }
@@ -197,7 +224,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
 
         firestoreListener = collectionRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                isSyncing.value = false
+                stopSyncing()
                 Log.e("FirebaseSync", "Snapshot listener error", error)
                 return@addSnapshotListener
             }
@@ -250,7 +277,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            isSyncing.value = false
+            stopSyncing()
         }
     }
 
@@ -272,26 +299,96 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                 this.updatedAt == other.updatedAt
     }
 
-    fun fetchAllFromCloud(onComplete: (List<OtpEntry>) -> Unit) {
-        db.collection("users").document(userId).collection("OTPs").get()
-            .addOnSuccessListener { snapshot ->
-                val entries = snapshot.documents.mapNotNull { doc ->
+    fun fetchAllFromCloud() {
+        /** Indicate syncing has started */
+        startSyncing()
+
+        /** Fetch all OTP entries from Firestore cloud collection */
+        db.collection("users").document(userId).collection("OTPs").get().addOnSuccessListener { snapshot ->
+                /** Launch coroutine to handle data processing */
+            viewModelScope.launch {
+                /** Map Firestore documents to OtpEntry objects, filtering out nulls */
+                val cloudEntries = snapshot.documents.mapNotNull { doc ->
                     doc.toObject(OtpEntry::class.java)
                 }
-                onComplete(entries)
-            }.addOnFailureListener { e ->
-                Log.e("FirebaseSync", "Failed to fetch OTPs from cloud", e)
-                onComplete(emptyList())
+
+                /** Get current local entries from state */
+                val localEntries = _otpEntries.value
+
+                /** Create maps for quick lookup by ID */
+                val cloudMap = cloudEntries.associateBy { it.id }
+                val localMap = localEntries.associateBy { it.id }
+
+                /**
+                 * Filter entries that are new or updated in the cloud compared to local data.
+                 * These need to be merged locally.
+                 */
+                val updatedOrNewFromCloud = cloudEntries.filter { cloudEntry ->
+                    val local = localMap[cloudEntry.id]
+                    local == null || !cloudEntry.isContentEqual(local)
+                }
+
+                /**
+                 * Filter local entries that are missing in the cloud.
+                 * These should be uploaded to cloud to keep sync.
+                 */
+                val missingInCloud = localEntries.filter { localEntry ->
+                    cloudMap[localEntry.id] == null
+                }
+
+                /** Upload missing local entries to the cloud asynchronously */
+                if (missingInCloud.isNotEmpty()) {
+                    uploadUpdatedOrNewOTPs(missingInCloud)
+                }
+
+                /**
+                 * Merge local entries with new/updated cloud entries,
+                 * remove duplicates by ID, and regenerate OTP codes for each entry.
+                 */
+                val merged = (localEntries + updatedOrNewFromCloud)
+                    .distinctBy { it.id }
+                    .map {
+                        it.copy(
+                            code = OtpUtils.generateOtp(
+                                it.secret,
+                                it.digits,
+                                it.algorithm,
+                                it.period
+                            )
+                        )
+                    }
+
+                /** Update the local entries state with merged data */
+                _otpEntries.value = merged
+
+                /** Persist merged OTP entries locally */
+                OtpStorage.saveOtpList(merged)
+
+                /** Log syncing summary */
+                Log.d(
+                    "FirebaseSync",
+                    "Fetch sync: ${updatedOrNewFromCloud.size} from cloud, ${missingInCloud.size} uploaded"
+                )
+
+                /** Mark syncing as completed */
+                stopSyncing()
             }
+        }.addOnFailureListener { e ->
+            /** Log error if fetching fails */
+            Log.e("FirebaseSync", "Failed to fetch OTPs from cloud", e)
+
+            /** Mark syncing as completed, even though it failed */
+            stopSyncing()
+        }
     }
 
     fun uploadUpdatedOrNewOTPs(updatedOTPs: List<OtpEntry>) {
-        isSyncing.value = true
+        startSyncing()
 
         val userDocRef = db.collection("users").document(userId)
         val collection = userDocRef.collection("OTPs")
 
-        updatedOTPs.forEach { otp ->
+        val tasks = updatedOTPs.map { otp ->
             val otpDoc = collection.document(otp.id)
             val data = mapOf(
                 "id" to otp.id,
@@ -302,28 +399,26 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                 "period" to otp.period,
                 "updatedAt" to otp.updatedAt,
             )
+            otpDoc.set(data, SetOptions.merge())
+        }
 
-            otpDoc.set(data, SetOptions.merge()).addOnSuccessListener {
-                isSyncing.value = false
-                Log.d("FirebaseSync", "Uploaded OTP ${otp.id} successfully")
-            }.addOnFailureListener { e ->
-                isSyncing.value = false
-                Log.e("FirebaseSync", "Failed to upload OTP ${otp.id}", e)
-            }
+        Tasks.whenAllComplete(tasks).addOnCompleteListener {
+            stopSyncing()
+            Log.d("FirebaseSync", "All OTP uploads completed")
         }
     }
 
     fun deleteOtpFromFirebase(otpId: String) {
-        isSyncing.value = true
+        startSyncing()
 
         val otpDoc = db.collection("users").document(userId).collection("OTPs").document(otpId)
         otpDoc.delete().addOnSuccessListener {
-            isSyncing.value = false
             Log.d("FirebaseSync", "Deleted OTP $otpId successfully")
         }.addOnFailureListener { e ->
-            isSyncing.value = false
             Log.e("FirebaseSync", "Failed to delete OTP $otpId", e)
         }
+
+        stopSyncing()
     }
 
     /**
@@ -354,7 +449,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleCloudSync(enabled: Boolean) {
         if (enabled) {
-            startListeningForCloudChanges()
+            fetchAllFromCloud()
         } else {
             stopListeningForCloudChanges()
         }

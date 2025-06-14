@@ -90,6 +90,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Feedback
@@ -144,6 +145,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -176,7 +178,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -440,7 +441,8 @@ class MainActivity : AppCompatActivity() {
 
                                     "import" -> {
                                         withContext(Dispatchers.IO) {
-                                            val compressedBytes = Base64.decode(code, Base64.NO_WRAP)
+                                            val compressedBytes =
+                                                Base64.decode(code, Base64.NO_WRAP)
 
                                             val inflater = Inflater()
                                             try {
@@ -455,7 +457,8 @@ class MainActivity : AppCompatActivity() {
                                                 }
 
                                                 val decompressedBytes = outputStream.toByteArray()
-                                                val cborArray = CBORObject.DecodeFromBytes(decompressedBytes)
+                                                val cborArray =
+                                                    CBORObject.DecodeFromBytes(decompressedBytes)
 
                                                 val list = mutableListOf<OtpEntry>()
                                                 for (i in 0 until cborArray.size()) {
@@ -1093,60 +1096,6 @@ fun openAppSettings(context: Context) {
     context.startActivity(intent)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SimpleSearchBar(
-    textFieldState: TextFieldState,
-    onSearch: (String) -> Unit,
-    searchResults: List<String>,
-    modifier: Modifier = Modifier
-) {
-    // Controls expansion state of the search bar
-    var expanded by rememberSaveable { mutableStateOf(false) }
-
-    Box(
-        modifier
-            .fillMaxSize()
-            .semantics { isTraversalGroup = true }
-    ) {
-        SearchBar(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .semantics { traversalIndex = 0f },
-            inputField = {
-                SearchBarDefaults.InputField(
-                    query = textFieldState.text.toString(),
-                    onQueryChange = { textFieldState.edit { replace(0, length, it) } },
-                    onSearch = {
-                        onSearch(textFieldState.text.toString())
-                        expanded = false
-                    },
-                    expanded = expanded,
-                    onExpandedChange = { expanded = it },
-                    placeholder = { Text("Search") }
-                )
-            },
-            expanded = expanded,
-            onExpandedChange = { expanded = it },
-        ) {
-            // Display search results in a scrollable column
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                searchResults.forEach { result ->
-                    ListItem(
-                        headlineContent = { Text(result) },
-                        modifier = Modifier
-                            .clickable {
-                                textFieldState.edit { replace(0, length, result) }
-                                expanded = false
-                            }
-                            .fillMaxWidth()
-                    )
-                }
-            }
-        }
-    }
-}
-
 @OptIn(
     ExperimentalFoundationApi::class, ExperimentalMaterialApi::class,
     ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class
@@ -1408,11 +1357,15 @@ fun OtpScreen(
 
                                     if (!expanded) {
                                         if (isSyncing) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier
-                                                    .size(25.dp),
-                                                strokeWidth = 3.dp
-                                            )
+                                            IconButton(onClick = {
+
+                                            }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CloudSync,
+                                                    contentDescription = "Syncing",
+                                                    tint = MaterialTheme.colorScheme.secondary
+                                                )
+                                            }
                                         } else {
                                             IconButton(onClick = {
 
@@ -1420,7 +1373,7 @@ fun OtpScreen(
                                                 Icon(
                                                     imageVector = Icons.Default.CloudDone,
                                                     contentDescription = "Sync",
-                                                    tint = MaterialTheme.colorScheme.primary
+                                                    tint = MaterialTheme.colorScheme.secondary
                                                 )
                                             }
                                         }
@@ -1476,76 +1429,82 @@ fun OtpScreen(
                     }
                 }
 
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize(),
+                PullToRefreshBox(
+                    isRefreshing = isSyncing,
+                    onRefresh = { otpViewModel.fetchAllFromCloud() },
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    if (otpEntries.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillParentMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Info,
-                                        contentDescription = "No OTP",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(48.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Text(
-                                        text = "It’s a little empty in here!",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        items(
-                            items = otpEntries,
-                            key = { it.id }
-                        ) { otp ->
-                            val progress = progressMap[otp.id] ?: 1f
-                            val dismissState = rememberDismissState(
-                                confirmStateChange = { dismissValue ->
-                                    if (dismissValue == DismissValue.DismissedToStart) {
-                                        otpPendingDeletion = otp
-                                        false
-                                    } else false
-                                }
-                            )
-
-                            SwipeToDismiss(
-                                state = dismissState,
-                                directions = setOf(DismissDirection.EndToStart),
-                                dismissThresholds = { FractionalThreshold(0.8f) },
-                                background = {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(MaterialTheme.colorScheme.surface)
-                                            .padding(horizontal = 20.dp),
-                                        contentAlignment = Alignment.CenterEnd
-                                    ) {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize(),
+                    ) {
+                        if (otpEntries.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillParentMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Delete",
-                                            tint = MaterialTheme.colorScheme.primary
+                                            imageVector = Icons.Outlined.Info,
+                                            contentDescription = "No OTP",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text(
+                                            text = "It’s a little empty in here!",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                                         )
                                     }
-                                },
-                                modifier = Modifier
-                                    .padding(vertical = 8.dp)
-                                    .animateItem()
-                            ) {
-                                OtpCard(
-                                    otp = otp,
-                                    progress = progress,
-                                    modifier = Modifier.fillMaxWidth()
+                                }
+                            }
+                        } else {
+                            items(
+                                items = otpEntries,
+                                key = { it.id }
+                            ) { otp ->
+                                val progress = progressMap[otp.id] ?: 1f
+                                val dismissState = rememberDismissState(
+                                    confirmStateChange = { dismissValue ->
+                                        if (dismissValue == DismissValue.DismissedToStart) {
+                                            otpPendingDeletion = otp
+                                            false
+                                        } else false
+                                    }
                                 )
+
+                                SwipeToDismiss(
+                                    state = dismissState,
+                                    directions = setOf(DismissDirection.EndToStart),
+                                    dismissThresholds = { FractionalThreshold(0.8f) },
+                                    background = {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(MaterialTheme.colorScheme.surface)
+                                                .padding(horizontal = 20.dp),
+                                            contentAlignment = Alignment.CenterEnd
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .padding(vertical = 8.dp)
+                                        .animateItem()
+                                ) {
+                                    OtpCard(
+                                        otp = otp,
+                                        progress = progress,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
                             }
                         }
                     }
@@ -1553,6 +1512,7 @@ fun OtpScreen(
             }
         }
     }
+
 
     /** Confirmation dialog to delete OTP */
     if (otpPendingDeletion != null) {

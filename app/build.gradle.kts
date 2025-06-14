@@ -13,7 +13,7 @@ android {
         applicationId = "com.socketlink.android.authenticator"
         minSdk = 24
         targetSdk = 35
-        versionCode = 14
+        versionCode = 16
         versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -87,4 +87,5 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.com.google.firebase.firebase.firestore)
     implementation(libs.guava)
+    implementation("com.google.accompanist:accompanist-swiperefresh:0.30.1")
 }
