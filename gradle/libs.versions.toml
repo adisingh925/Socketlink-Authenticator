@@ -56,6 +56,7 @@ androidx-navigation-compose-v275 = { module = "androidx.navigation:navigation-co
 androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "securityCrypto" }
 barcode-scanning = { module = "com.google.mlkit:barcode-scanning", version.ref = "barcodeScanning" }
 cbor = { module = "com.upokecenter:cbor", version.ref = "cbor" }
+com-google-firebase-firebase-firestore = { module = "com.google.firebase:firebase-firestore" }
 commons-codec = { module = "commons-codec:commons-codec", version.ref = "commonsCodec" }
 core = { module = "com.google.zxing:core", version.ref = "core" }
 core-v351 = { module = "com.google.zxing:core", version.ref = "googleCore" }

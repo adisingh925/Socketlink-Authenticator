@@ -45,7 +45,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -74,6 +73,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.DismissDirection
 import androidx.compose.material.DismissValue
@@ -84,10 +84,12 @@ import androidx.compose.material.SwipeToDismiss
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Feedback
@@ -134,10 +136,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SearchBar
+import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -146,7 +149,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -166,13 +168,15 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -181,6 +185,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
@@ -247,14 +252,7 @@ class MainActivity : AppCompatActivity() {
                 val progressMap by otpViewModel.progressMap.collectAsState()
 
                 /** Camera permission handler */
-                val cameraPermissionState =
-                    rememberPermissionState(android.Manifest.permission.CAMERA)
 
-                /** Coroutine scope for launching suspend functions */
-                val coroutineScope = rememberCoroutineScope()
-
-                /** Flag to indicate when the camera FAB is clicked */
-                var cameraButtonClicked by remember { mutableStateOf(false) }
 
                 /** Context for showing Toasts or launching settings */
                 val context = LocalContext.current
@@ -276,7 +274,7 @@ class MainActivity : AppCompatActivity() {
                             Lifecycle.Event.ON_START -> {
                                 /** Check unlock option and elapsed time */
                                 val unlockSeconds =
-                                    SettingPreferences.getUnlockOption(context) // in seconds
+                                    Utils.getUnlockOption(context) // in seconds
                                 val unlockMillis = unlockSeconds * 1000L
                                 val now = System.currentTimeMillis()
 
@@ -284,7 +282,7 @@ class MainActivity : AppCompatActivity() {
                                     val timeInBackground = now - backgroundTimestamp!!
 
                                     if (timeInBackground >= unlockMillis) {
-                                        if (SettingPreferences.isAppLockEnabled(context)) {
+                                        if (Utils.isAppLockEnabled(context)) {
                                             if (navController.currentDestination?.route != "auth") {
                                                 navController.navigate("auth")
                                             }
@@ -304,17 +302,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                /**
-                 * Handle camera permission result and navigate to the scanner screen
-                 * only when permission is granted and the button was clicked.
-                 */
-                LaunchedEffect(cameraPermissionState.status.isGranted, cameraButtonClicked) {
-                    if (cameraButtonClicked && cameraPermissionState.status.isGranted) {
-                        cameraButtonClicked = false
-                        navController.navigate("scanner?mode=scan")
-                    }
-                }
-
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -325,7 +312,7 @@ class MainActivity : AppCompatActivity() {
                      */
                     AnimatedNavHost(
                         navController = navController,
-                        startDestination = if (SettingPreferences.isAppLockEnabled(this@MainActivity)) {
+                        startDestination = if (Utils.isAppLockEnabled(this@MainActivity)) {
                             "auth"
                         } else {
                             "main"
@@ -383,87 +370,13 @@ class MainActivity : AppCompatActivity() {
                          * Displays list of OTPs and shows floating action buttons.
                          */
                         composable("main") {
-                            Scaffold(
-                                /** Floating buttons for camera and manual OTP */
-                                floatingActionButton = {
-                                    ExpandableFab(
-                                        onScanClick = {
-                                            cameraButtonClicked = true
-                                            if (SettingPreferences.isCameraPermissionRequested(this@MainActivity)) {
-                                                when {
-                                                    cameraPermissionState.status.isGranted -> Unit
-                                                    cameraPermissionState.status.shouldShowRationale -> {
-                                                        coroutineScope.launch {
-                                                            cameraPermissionState.launchPermissionRequest()
-                                                        }
-                                                    }
-
-                                                    else -> {
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Please enable camera permission in app settings",
-                                                            Toast.LENGTH_LONG
-                                                        ).show()
-                                                        openAppSettings(context as Activity)
-                                                    }
-                                                }
-                                            } else {
-                                                SettingPreferences.setCameraPermissionRequested(
-                                                    this@MainActivity,
-                                                    true
-                                                )
-                                                coroutineScope.launch {
-                                                    cameraPermissionState.launchPermissionRequest()
-                                                }
-                                            }
-                                        },
-                                        onAddClick = {
-                                            navController.navigate("add")
-                                        }
-                                    )
-                                },
-
-                                /** Main screen container */
-                                modifier = Modifier.fillMaxSize()
-                            ) { innerPadding ->
-                                /** Actual OTP UI list with progress indicators */
-                                OtpScreen(
-                                    otpEntries = otpEntries,
-                                    progressMap = progressMap,
-                                    modifier = Modifier.padding(innerPadding),
-                                    otpViewModel = otpViewModel,
-                                    onNavigateToSettings = { navController.navigate("settings") },
-                                    onNavigateToTransfer = { navController.navigate("transfer") },
-                                    onNavigateToFeedback = {
-                                        val reviewManager =
-                                            ReviewManagerFactory.create(this@MainActivity)
-
-                                        reviewManager.requestReviewFlow()
-                                            .addOnCompleteListener { task ->
-                                                if (task.isSuccessful) {
-                                                    val reviewInfo = task.result
-
-                                                    reviewManager.launchReviewFlow(
-                                                        this@MainActivity,
-                                                        reviewInfo
-                                                    ).addOnCompleteListener {
-                                                        // Flow complete. No indication whether review dialog was shown or used.
-                                                    }
-                                                } else {
-                                                    // Fallback: Open Play Store page
-                                                    val fallbackIntent = Intent(
-                                                        Intent.ACTION_VIEW,
-                                                        Uri.parse("market://details?id=${this@MainActivity.packageName}")
-                                                    ).apply {
-                                                        setPackage("com.android.vending")
-                                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                    }
-                                                    startActivity(fallbackIntent)
-                                                }
-                                            }
-                                    }
-                                )
-                            }
+                            /** Actual OTP UI list with progress indicators */
+                            OtpScreen(
+                                otpEntries = otpEntries,
+                                progressMap = progressMap,
+                                otpViewModel = otpViewModel,
+                                navController = navController
+                            )
                         }
 
                         /**
@@ -542,8 +455,7 @@ class MainActivity : AppCompatActivity() {
                                                 }
 
                                                 val decompressedBytes = outputStream.toByteArray()
-                                                val cborArray =
-                                                    CBORObject.DecodeFromBytes(decompressedBytes)
+                                                val cborArray = CBORObject.DecodeFromBytes(decompressedBytes)
 
                                                 val list = mutableListOf<OtpEntry>()
                                                 for (i in 0 until cborArray.size()) {
@@ -730,7 +642,7 @@ fun TransferCodesScreenWithAuth(navController: NavController) {
         onExportClick = onExportClick,
         onImportClick = {
             cameraButtonClicked = true
-            if (SettingPreferences.isCameraPermissionRequested(context)) {
+            if (Utils.isCameraPermissionRequested(context)) {
                 when {
                     cameraPermissionState.status.isGranted -> Unit
                     cameraPermissionState.status.shouldShowRationale -> {
@@ -749,7 +661,7 @@ fun TransferCodesScreenWithAuth(navController: NavController) {
                     }
                 }
             } else {
-                SettingPreferences.setCameraPermissionRequested(context, true)
+                Utils.setCameraPermissionRequested(context, true)
                 CoroutineScope(Dispatchers.IO).launch {
                     cameraPermissionState.launchPermissionRequest()
                 }
@@ -1030,60 +942,12 @@ fun AuthenticationScreen(
     }
 }
 
-object SettingPreferences {
-    private const val PREF_NAME = "settings_prefs"
-
-    private const val APP_LOCK_KEY = "app_lock_enabled"
-    private const val UNLOCK_OPTION_KEY = "unlock_option"
-    private const val CAMERA_PERMISSION_REQUESTED_KEY = "camera_permission_requested"
-    private const val DEFAULT_UNLOCK_OPTION = 0
-
-    /** Get whether app lock is enabled */
-    fun isAppLockEnabled(context: Context): Boolean {
-        return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .getBoolean(APP_LOCK_KEY, false)
-    }
-
-    /** Set whether app lock is enabled */
-    fun setAppLockEnabled(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
-            .putBoolean(APP_LOCK_KEY, enabled)
-            .apply()
-    }
-
-    /** Get selected unlock option */
-    fun getUnlockOption(context: Context): Int {
-        return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .getInt(UNLOCK_OPTION_KEY, DEFAULT_UNLOCK_OPTION)
-    }
-
-    /** Set unlock option */
-    fun setUnlockOption(context: Context, option: Int) {
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
-            .putInt(UNLOCK_OPTION_KEY, option)
-            .apply()
-    }
-
-    /** Get whether camera permission was requested before */
-    fun isCameraPermissionRequested(context: Context): Boolean {
-        return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .getBoolean(CAMERA_PERMISSION_REQUESTED_KEY, false)
-    }
-
-    /** Set camera permission requested flag */
-    fun setCameraPermissionRequested(context: Context, requested: Boolean) {
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
-            .putBoolean(CAMERA_PERMISSION_REQUESTED_KEY, requested)
-            .apply()
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(navController: NavController) {
     val context = LocalContext.current
 
-    var appLockEnabled by remember { mutableStateOf(SettingPreferences.isAppLockEnabled(context)) }
+    var appLockEnabled by remember { mutableStateOf(Utils.isAppLockEnabled(context)) }
     var triggerAuth by remember { mutableStateOf(false) }
     var togglePending by remember { mutableStateOf(false) }
 
@@ -1097,7 +961,7 @@ fun SettingsScreen(navController: NavController) {
 
     var showDialog by rememberSaveable { mutableStateOf(false) }
 
-    val unlockOption = remember { mutableIntStateOf(SettingPreferences.getUnlockOption(context)) }
+    val unlockOption = remember { mutableIntStateOf(Utils.getUnlockOption(context)) }
 
     val selectedOptionText = unlockOptions.firstOrNull { it.second == unlockOption.intValue }?.first
         ?: unlockOptions[0].first
@@ -1137,15 +1001,7 @@ fun SettingsScreen(navController: NavController) {
                         onCheckedChange = {
                             togglePending = it
                             triggerAuth = true
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                alpha = 0.3f
-                            )
-                        )
+                        }
                     )
                 }
             )
@@ -1174,7 +1030,7 @@ fun SettingsScreen(navController: NavController) {
                 trigger = triggerAuth,
                 onAuthenticated = {
                     appLockEnabled = togglePending
-                    SettingPreferences.setAppLockEnabled(context, togglePending)
+                    Utils.setAppLockEnabled(context, togglePending)
                 },
                 onFailed = {},
                 resetTrigger = { triggerAuth = false }
@@ -1201,7 +1057,7 @@ fun SettingsScreen(navController: NavController) {
                                         indication = LocalIndication.current
                                     ) {
                                         unlockOption.intValue = value
-                                        SettingPreferences.setUnlockOption(context, value)
+                                        Utils.setUnlockOption(context, value)
                                         showDialog = false
                                     }
                                     .padding(vertical = 4.dp, horizontal = 8.dp)
@@ -1210,7 +1066,7 @@ fun SettingsScreen(navController: NavController) {
                                     selected = selected,
                                     onClick = {
                                         unlockOption.intValue = value
-                                        SettingPreferences.setUnlockOption(context, value)
+                                        Utils.setUnlockOption(context, value)
                                         showDialog = false
                                     }
                                 )
@@ -1237,19 +1093,73 @@ fun openAppSettings(context: Context) {
     context.startActivity(intent)
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterialApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SimpleSearchBar(
+    textFieldState: TextFieldState,
+    onSearch: (String) -> Unit,
+    searchResults: List<String>,
+    modifier: Modifier = Modifier
+) {
+    // Controls expansion state of the search bar
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    Box(
+        modifier
+            .fillMaxSize()
+            .semantics { isTraversalGroup = true }
+    ) {
+        SearchBar(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .semantics { traversalIndex = 0f },
+            inputField = {
+                SearchBarDefaults.InputField(
+                    query = textFieldState.text.toString(),
+                    onQueryChange = { textFieldState.edit { replace(0, length, it) } },
+                    onSearch = {
+                        onSearch(textFieldState.text.toString())
+                        expanded = false
+                    },
+                    expanded = expanded,
+                    onExpandedChange = { expanded = it },
+                    placeholder = { Text("Search") }
+                )
+            },
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+        ) {
+            // Display search results in a scrollable column
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                searchResults.forEach { result ->
+                    ListItem(
+                        headlineContent = { Text(result) },
+                        modifier = Modifier
+                            .clickable {
+                                textFieldState.edit { replace(0, length, result) }
+                                expanded = false
+                            }
+                            .fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(
+    ExperimentalFoundationApi::class, ExperimentalMaterialApi::class,
+    ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class
+)
 @Composable
 fun OtpScreen(
     otpEntries: List<OtpEntry>,
     progressMap: Map<String, Float>,
-    modifier: Modifier = Modifier,
     otpViewModel: OtpViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
-    onNavigateToSettings: () -> Unit = {},
-    onNavigateToTransfer: () -> Unit = {},
-    onNavigateToFeedback: () -> Unit = {}
+    navController: NavController
 ) {
     /** Focus manager to handle keyboard focus */
-    val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
 
     /** State for drawer (open/closed) */
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -1257,16 +1167,41 @@ fun OtpScreen(
     /** Coroutine scope for launching drawer open/close */
     val drawerScope = rememberCoroutineScope()
 
+    val textFieldState = remember { TextFieldState() }
+
     /** State for search query input */
-    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val query = textFieldState.text.trim()
+
+    val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
+
+    /** Coroutine scope for launching suspend functions */
+    val coroutineScope = rememberCoroutineScope()
+
+    /** Flag to indicate when the camera FAB is clicked */
+    var cameraButtonClicked by remember { mutableStateOf(false) }
+
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    val isSyncing by otpViewModel.isSyncing.collectAsState()
+
+    /**
+     * Handle camera permission result and navigate to the scanner screen
+     * only when permission is granted and the button was clicked.
+     */
+    LaunchedEffect(cameraPermissionState.status.isGranted, cameraButtonClicked) {
+        if (cameraButtonClicked && cameraPermissionState.status.isGranted) {
+            cameraButtonClicked = false
+            navController.navigate("scanner?mode=scan")
+        }
+    }
 
     /** Filter OTP entries based on search query using derivedStateOf to optimize recompositions */
-    val filteredEntries by remember(otpEntries, searchQuery) {
-        derivedStateOf {
-            if (searchQuery.isBlank()) otpEntries
-            else otpEntries.filter { otp ->
-                otp.codeName.contains(searchQuery, ignoreCase = true)
-            }
+    val filteredEntries = if (query.isBlank()) {
+        otpEntries // show all entries when query is empty
+    } else {
+        otpEntries.filter {
+            it.codeName.contains(query, ignoreCase = true)
+            // Add other fields if needed
         }
     }
 
@@ -1280,153 +1215,229 @@ fun OtpScreen(
         }
     }
 
-    /** Modal navigation drawer wrapping the main content and drawer content */
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            /** Drawer sheet with status and navigation bars padding */
-            ModalDrawerSheet(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(LocalConfiguration.current.screenWidthDp.dp * 0.8f)
-                    .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.navigationBars))
-            ) {
-                /** Modifier for drawer items to apply consistent padding */
-                val drawerItemModifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp)
+    Scaffold(
+        /** Floating buttons for camera and manual OTP */
+        floatingActionButton = {
+            if (!expanded) {
+                ExpandableFab(
+                    onScanClick = {
+                        cameraButtonClicked = true
+                        if (Utils.isCameraPermissionRequested(context)) {
+                            when {
+                                cameraPermissionState.status.isGranted -> Unit
+                                cameraPermissionState.status.shouldShowRationale -> {
+                                    coroutineScope.launch {
+                                        cameraPermissionState.launchPermissionRequest()
+                                    }
+                                }
 
-                /** Navigation drawer item: Transfer Codes */
-                NavigationDrawerItem(
-                    label = { Text("Transfer Codes") },
-                    icon = { Icon(Icons.Default.Sync, contentDescription = "Transfer Codes") },
-                    selected = false,
-                    onClick = {
-                        drawerScope.launch {
-                            drawerState.close()
-                            /** Close drawer */
-                            onNavigateToTransfer()
-                            /** Trigger navigation callback */
-                        }
-                    },
-                    modifier = drawerItemModifier
-                )
-
-                Divider(
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                    thickness = 1.dp,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-
-                /** Navigation drawer item: Settings */
-                NavigationDrawerItem(
-                    label = { Text("Settings") },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                    selected = false,
-                    onClick = {
-                        drawerScope.launch {
-                            drawerState.close()
-                            onNavigateToSettings()
-                        }
-                    },
-                    modifier = drawerItemModifier
-                )
-
-                Divider(
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                    thickness = 1.dp,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-
-                /** Navigation drawer item: Feedback */
-                NavigationDrawerItem(
-                    label = { Text("Feedback") },
-                    icon = { Icon(Icons.Default.Feedback, contentDescription = "Feedback") },
-                    selected = false,
-                    onClick = {
-                        drawerScope.launch {
-                            drawerState.close()
-                            onNavigateToFeedback()
-                        }
-                    },
-                    modifier = drawerItemModifier
-                )
-            }
-        }
-    )
-    {
-        /** Main content column */
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp)
-                /** Detect taps outside text field to clear focus (hide keyboard) */
-                .pointerInput(Unit) {
-                    detectTapGestures(onTap = { focusManager.clearFocus() })
-                }
-        ) {
-            /** Search text field with leading menu icon and trailing clear icon */
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Search...") },
-                singleLine = true,
-                shape = RoundedCornerShape(34.dp),
-                leadingIcon = {
-                    /** Menu icon opens/closes the drawer */
-                    IconButton(
-                        onClick = {
-                            drawerScope.launch {
-                                if (drawerState.isClosed) drawerState.open()
-                                else drawerState.close()
+                                else -> {
+                                    Toast.makeText(
+                                        context,
+                                        "Please enable camera permission in app settings",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    openAppSettings(context as Activity)
+                                }
+                            }
+                        } else {
+                            Utils.setCameraPermissionRequested(
+                                context,
+                                true
+                            )
+                            coroutineScope.launch {
+                                cameraPermissionState.launchPermissionRequest()
                             }
                         }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Menu,
-                            contentDescription = "Menu"
-                        )
+                    },
+                    onAddClick = {
+                        navController.navigate("add")
                     }
-                },
-                trailingIcon = {
-                    /** Show clear icon only if searchQuery is not blank */
-                    if (searchQuery.isNotBlank()) {
-                        IconButton(onClick = {
-                            searchQuery = ""
-                            focusManager.clearFocus()
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Clear search"
-                            )
-                        }
-                    }
-                },
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = Color.Transparent,
-                    focusedBorderColor = Color.Transparent,
-                    cursorColor = MaterialTheme.colorScheme.primary,
-                    focusedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f),
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 10.dp)
-            )
+                )
+            }
+        },
 
-            /** LazyColumn showing filtered OTP entries with swipe-to-dismiss */
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 8.dp)
+        /** Main screen container */
+        modifier = Modifier.fillMaxSize()
+    ) { innerPadding ->
+        /** Modal navigation drawer wrapping the main content and drawer content */
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                /** Drawer sheet with status and navigation bars padding */
+                ModalDrawerSheet(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(LocalConfiguration.current.screenWidthDp.dp * 0.8f)
+                        .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.navigationBars))
+                ) {
+                    /** Modifier for drawer items to apply consistent padding */
+                    val drawerItemModifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp)
+
+                    /** Navigation drawer item: Transfer Codes */
+                    NavigationDrawerItem(
+                        label = { Text("Transfer Codes") },
+                        icon = { Icon(Icons.Default.Sync, contentDescription = "Transfer Codes") },
+                        selected = false,
+                        onClick = {
+                            drawerScope.launch {
+                                /** Close drawer */
+                                drawerState.close()
+                                /** Trigger navigation callback */
+                                navController.navigate("transfer")
+                            }
+                        },
+                        modifier = drawerItemModifier
+                    )
+
+                    Divider(
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                        thickness = 1.dp,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+
+                    /** Navigation drawer item: Settings */
+                    NavigationDrawerItem(
+                        label = { Text("Settings") },
+                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                        selected = false,
+                        onClick = {
+                            drawerScope.launch {
+                                drawerState.close()
+                                navController.navigate("settings")
+                            }
+                        },
+                        modifier = drawerItemModifier
+                    )
+
+                    Divider(
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                        thickness = 1.dp,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+
+                    /** Navigation drawer item: Feedback */
+                    NavigationDrawerItem(
+                        label = { Text("Feedback") },
+                        icon = { Icon(Icons.Default.Feedback, contentDescription = "Feedback") },
+                        selected = false,
+                        onClick = {
+                            drawerScope.launch {
+                                drawerState.close()
+                                val reviewManager = ReviewManagerFactory.create(context)
+
+                                reviewManager.requestReviewFlow().addOnCompleteListener { task ->
+                                    if (task.isSuccessful) {
+                                        val reviewInfo = task.result
+
+                                        reviewManager.launchReviewFlow(
+                                            context as Activity,
+                                            reviewInfo
+                                        ).addOnCompleteListener {
+                                            // Flow complete. No indication whether review dialog was shown or used.
+                                        }
+                                    } else {
+                                        // Fallback: Open Play Store page
+                                        val fallbackIntent = Intent(
+                                            Intent.ACTION_VIEW,
+                                            Uri.parse("market://details?id=${context.packageName}")
+                                        ).apply {
+                                            setPackage("com.android.vending")
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        context.startActivity(fallbackIntent)
+                                    }
+                                }
+                            }
+                        },
+                        modifier = drawerItemModifier
+                    )
+                }
+            }
+        )
+        {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .semantics { isTraversalGroup = true }
+                    .windowInsetsPadding(WindowInsets.navigationBars),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (filteredEntries.isEmpty()) {
-                    item {
+                SearchBar(
+                    modifier = Modifier
+                        .zIndex(1f)
+                        .padding(bottom = 8.dp),
+                    inputField = {
+                        SearchBarDefaults.InputField(
+                            query = textFieldState.text.toString(),
+                            onQueryChange = { textFieldState.edit { replace(0, length, it) } },
+                            onSearch = { expanded = false },
+                            expanded = expanded,
+                            onExpandedChange = { expanded = it },
+                            placeholder = { Text("Search") },
+                            leadingIcon = {
+                                IconButton(onClick = {
+                                    if (expanded) {
+                                        expanded = false
+                                        textFieldState.edit { replace(0, length, "") }
+                                    } else {
+                                        drawerScope.launch {
+                                            if (drawerState.isClosed) drawerState.open()
+                                            else drawerState.close()
+                                        }
+                                    }
+                                }) {
+                                    Icon(
+                                        imageVector = if (expanded) Icons.Default.ArrowBack else Icons.Default.Menu,
+                                        contentDescription = if (expanded) "Back" else "Open drawer"
+                                    )
+                                }
+                            },
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (textFieldState.text.isNotEmpty()) {
+                                        IconButton(onClick = {
+                                            textFieldState.edit { replace(0, length, "") }
+                                        }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Clear text"
+                                            )
+                                        }
+                                    }
+
+                                    if (!expanded) {
+                                        if (isSyncing) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier
+                                                    .size(25.dp),
+                                                strokeWidth = 3.dp
+                                            )
+                                        } else {
+                                            IconButton(onClick = {
+
+                                            }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CloudDone,
+                                                    contentDescription = "Sync",
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                    },
+                    expanded = expanded,
+                    onExpandedChange = { expanded = it },
+                ) {
+                    if (filteredEntries.isEmpty()) {
                         Box(
-                            modifier = Modifier
-                                .fillParentMaxSize(), // Fills the remaining space in LazyColumn
+                            Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
                                     imageVector = Icons.Outlined.Info,
                                     contentDescription = "No OTP",
@@ -1441,51 +1452,101 @@ fun OtpScreen(
                                 )
                             }
                         }
-                    }
-                } else {
-                    items(
-                        items = filteredEntries,
-                        key = { it.id }
-                    ) { otp ->
-                        val progress = progressMap[otp.id] ?: 1f
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            items(filteredEntries, key = { it.id }) { otp ->
+                                val progress = progressMap[otp.id] ?: 1f
 
-                        val dismissState = rememberDismissState(
-                            confirmStateChange = { dismissValue ->
-                                if (dismissValue == DismissValue.DismissedToStart) {
-                                    otpPendingDeletion = otp
-                                    false
-                                } else false
-                            }
-                        )
-
-                        SwipeToDismiss(
-                            state = dismissState,
-                            directions = setOf(DismissDirection.EndToStart),
-                            dismissThresholds = { FractionalThreshold(0.8f) },
-                            background = {
-                                Box(
+                                OtpCard(
+                                    otp = otp,
+                                    progress = progress,
                                     modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(MaterialTheme.colorScheme.surface)
-                                        .padding(horizontal = 20.dp),
-                                    contentAlignment = Alignment.CenterEnd
-                                ) {
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            expanded = false
+                                        }
+                                        .padding(vertical = 8.dp),
+                                    SearchBarDefaults.colors().containerColor
+                                )
+                            }
+                        }
+                    }
+                }
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize(),
+                ) {
+                    if (otpEntries.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillParentMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Delete",
-                                        tint = MaterialTheme.colorScheme.primary
+                                        imageVector = Icons.Outlined.Info,
+                                        contentDescription = "No OTP",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(48.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = "It’s a little empty in here!",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                                     )
                                 }
-                            },
-                            modifier = Modifier
-                                .padding(vertical = 8.dp)
-                                .animateItem()
-                        ) {
-                            OtpCard(
-                                otp = otp,
-                                progress = progress,
-                                modifier = Modifier.fillMaxWidth(),
+                            }
+                        }
+                    } else {
+                        items(
+                            items = otpEntries,
+                            key = { it.id }
+                        ) { otp ->
+                            val progress = progressMap[otp.id] ?: 1f
+                            val dismissState = rememberDismissState(
+                                confirmStateChange = { dismissValue ->
+                                    if (dismissValue == DismissValue.DismissedToStart) {
+                                        otpPendingDeletion = otp
+                                        false
+                                    } else false
+                                }
                             )
+
+                            SwipeToDismiss(
+                                state = dismissState,
+                                directions = setOf(DismissDirection.EndToStart),
+                                dismissThresholds = { FractionalThreshold(0.8f) },
+                                background = {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(MaterialTheme.colorScheme.surface)
+                                            .padding(horizontal = 20.dp),
+                                        contentAlignment = Alignment.CenterEnd
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                },
+                                modifier = Modifier
+                                    .padding(vertical = 8.dp)
+                                    .animateItem()
+                            ) {
+                                OtpCard(
+                                    otp = otp,
+                                    progress = progress,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                         }
                     }
                 }
@@ -1557,11 +1618,13 @@ fun OtpScreen(
 }
 
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OtpCard(
     otp: OtpEntry,
     progress: Float,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.surface
 ) {
     val context = LocalContext.current
     val clipboardManager: ClipboardManager = LocalClipboardManager.current
@@ -1571,10 +1634,12 @@ fun OtpCard(
     }
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = color
         ),
         border = BorderStroke(
             width = 1.dp,

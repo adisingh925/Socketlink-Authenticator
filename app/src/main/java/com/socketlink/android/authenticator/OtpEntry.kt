@@ -8,13 +8,13 @@ data class OtpEntry(
     val id: String = UUID.randomUUID().toString(),
 
     @SerializedName("codeName")
-    val codeName: String,
+    val codeName: String = "",
 
     @SerializedName("secret")
-    val secret: String,
+    val secret: String = "",
 
     @SerializedName("code")
-    val code: String,
+    val code: String = "",
 
     @SerializedName("digits")
     val digits: Int = 6,
@@ -23,7 +23,10 @@ data class OtpEntry(
     val period: Int = 30,
 
     @SerializedName("algorithm")
-    val algorithm: String = "SHA1"
+    val algorithm: String = "SHA1",
+
+    @SerializedName("updatedAt")
+    val updatedAt: Long = System.currentTimeMillis()
 )
 
 
