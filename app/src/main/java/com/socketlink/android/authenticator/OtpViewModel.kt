@@ -239,6 +239,8 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
             Log.d("FirebaseSync", "Fetching OTPs for user: ${auth.uid}")
         }
 
+        startSyncing()
+
         /** Fetch all OTP entries from Firestore cloud collection */
         db.collection("users").document(auth.uid.toString()).collection("OTPs").get()
             .addOnSuccessListener { snapshot ->
