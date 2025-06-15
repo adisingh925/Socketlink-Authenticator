@@ -1,14 +1,18 @@
 package com.socketlink.android.authenticator
 
+import androidx.room.Entity
+import androidx.room.PrimaryKey
 import com.google.gson.annotations.SerializedName
 import java.util.UUID
 
+@Entity(tableName = "otp_entries")
 data class OtpEntry(
+    @PrimaryKey
     @SerializedName("id")
     val id: String = UUID.randomUUID().toString(),
 
     @SerializedName("email")
-    val email : String = "",
+    val email: String = "",
 
     @SerializedName("codeName")
     val codeName: String = "",

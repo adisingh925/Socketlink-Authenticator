@@ -591,11 +591,9 @@ private fun firebaseAuthWithGoogle(idToken: String, otpViewModel: OtpViewModel, 
     val credential = GoogleAuthProvider.getCredential(idToken, null)
     otpViewModel.auth.signInWithCredential(credential).addOnSuccessListener {
         Log.d("FirebaseAuth", "Sign-in successful")
-        otpViewModel.toggleCloudSync(Utils.isCloudSyncEnabled(context))
     }.addOnFailureListener { e ->
         Log.e("FirebaseAuth", "Sign-in failed: ${e.localizedMessage}")
-        Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG)
-            .show()
+        Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
     }
 }
 
@@ -1662,6 +1660,8 @@ fun OtpScreen(
                                 items = otpEntries,
                                 key = { it.id }
                             ) { otp ->
+//                                Log.d("OtpScreen", "Rendering OTP: ${otp.codeName} (${otp.id})")
+
                                 val userEmail = otpViewModel.auth.currentUser?.email
 
                                 if (userEmail != null) {

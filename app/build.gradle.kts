@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.gms.google-services")
+    id("com.google.devtools.ksp") version "2.1.21-2.0.1"
 }
 
 android {
@@ -13,7 +14,7 @@ android {
         applicationId = "com.socketlink.android.authenticator"
         minSdk = 24
         targetSdk = 35
-        versionCode = 19
+        versionCode = 20
         versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -94,4 +95,7 @@ dependencies {
     implementation(libs.googleid)
     implementation("com.google.android.gms:play-services-auth:21.3.0")
     implementation(libs.coil.compose)
+    implementation(libs.androidx.room.runtime)
+    ksp(libs.androidx.room.compiler)
+    annotationProcessor(libs.androidx.room.compiler)
 }
