@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentSender
+import android.credentials.ClearCredentialStateRequest
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
@@ -107,6 +108,7 @@ import androidx.compose.material.icons.filled.FlashlightOff
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.QrCode
@@ -143,6 +145,7 @@ import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
@@ -199,10 +202,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import androidx.credentials.CredentialManager
+import androidx.credentials.exceptions.ClearCredentialException
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
@@ -430,7 +436,8 @@ class MainActivity : AppCompatActivity() {
                                             code = "",
                                             digits = digits,
                                             algorithm = algorithm,
-                                            period = period
+                                            period = period,
+                                            email = otpViewModel.auth.currentUser?.email ?: ""
                                         )
                                     )
                                     navController.popBackStack()
@@ -587,7 +594,7 @@ private fun firebaseAuthWithGoogle(idToken: String, otpViewModel: OtpViewModel, 
     val credential = GoogleAuthProvider.getCredential(idToken, null)
     otpViewModel.auth.signInWithCredential(credential).addOnSuccessListener {
         Log.d("FirebaseAuth", "Sign-in successful")
-        otpViewModel.fetchAllFromCloud()
+        otpViewModel.toggleCloudSync(Utils.isCloudSyncEnabled(context))
     }.addOnFailureListener { e ->
         Log.e("FirebaseAuth", "Sign-in failed: ${e.localizedMessage}")
         Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG)
@@ -1211,6 +1218,8 @@ fun OtpScreen(
 
     val isSyncing by otpViewModel.isSyncing.collectAsState()
 
+    val credentialManager = remember { CredentialManager.create(context) }
+
     /**
      * Handle camera permission result and navigate to the scanner screen
      * only when permission is granted and the button was clicked.
@@ -1298,87 +1307,139 @@ fun OtpScreen(
                         .width(LocalConfiguration.current.screenWidthDp.dp * 0.8f)
                         .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.navigationBars))
                 ) {
-                    /** Modifier for drawer items to apply consistent padding */
-                    val drawerItemModifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp)
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            val drawerItemModifier =
+                                Modifier.padding(vertical = 8.dp, horizontal = 8.dp)
 
-                    /** Navigation drawer item: Transfer Codes */
-                    NavigationDrawerItem(
-                        label = { Text("Transfer Codes") },
-                        icon = { Icon(Icons.Default.Sync, contentDescription = "Transfer Codes") },
-                        selected = false,
-                        onClick = {
-                            drawerScope.launch {
-                                /** Close drawer */
-                                drawerState.close()
-                                /** Trigger navigation callback */
-                                navController.navigate("transfer")
-                            }
-                        },
-                        modifier = drawerItemModifier
-                    )
-
-                    Divider(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                        thickness = 1.dp,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-
-                    /** Navigation drawer item: Settings */
-                    NavigationDrawerItem(
-                        label = { Text("Settings") },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                        selected = false,
-                        onClick = {
-                            drawerScope.launch {
-                                drawerState.close()
-                                navController.navigate("settings")
-                            }
-                        },
-                        modifier = drawerItemModifier
-                    )
-
-                    Divider(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                        thickness = 1.dp,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-
-                    /** Navigation drawer item: Feedback */
-                    NavigationDrawerItem(
-                        label = { Text("Feedback") },
-                        icon = { Icon(Icons.Default.Feedback, contentDescription = "Feedback") },
-                        selected = false,
-                        onClick = {
-                            drawerScope.launch {
-                                drawerState.close()
-                                val reviewManager = ReviewManagerFactory.create(context)
-
-                                reviewManager.requestReviewFlow().addOnCompleteListener { task ->
-                                    if (task.isSuccessful) {
-                                        val reviewInfo = task.result
-
-                                        reviewManager.launchReviewFlow(
-                                            context as Activity,
-                                            reviewInfo
-                                        ).addOnCompleteListener {
-                                            // Flow complete. No indication whether review dialog was shown or used.
-                                        }
-                                    } else {
-                                        // Fallback: Open Play Store page
-                                        val fallbackIntent = Intent(
-                                            Intent.ACTION_VIEW,
-                                            Uri.parse("market://details?id=${context.packageName}")
-                                        ).apply {
-                                            setPackage("com.android.vending")
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        }
-                                        context.startActivity(fallbackIntent)
+                            NavigationDrawerItem(
+                                label = { Text("Transfer Codes") },
+                                icon = {
+                                    Icon(
+                                        Icons.Default.Sync,
+                                        contentDescription = "Transfer Codes"
+                                    )
+                                },
+                                selected = false,
+                                onClick = {
+                                    drawerScope.launch {
+                                        drawerState.close()
+                                        navController.navigate("transfer")
                                     }
-                                }
-                            }
-                        },
-                        modifier = drawerItemModifier
-                    )
+                                },
+                                modifier = drawerItemModifier
+                            )
+
+                            Divider(
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                                thickness = 1.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+
+                            NavigationDrawerItem(
+                                label = { Text("Settings") },
+                                icon = {
+                                    Icon(
+                                        Icons.Default.Settings,
+                                        contentDescription = "Settings"
+                                    )
+                                },
+                                selected = false,
+                                onClick = {
+                                    drawerScope.launch {
+                                        drawerState.close()
+                                        navController.navigate("settings")
+                                    }
+                                },
+                                modifier = drawerItemModifier
+                            )
+
+                            Divider(
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                                thickness = 1.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+
+                            NavigationDrawerItem(
+                                label = { Text("Feedback") },
+                                icon = {
+                                    Icon(
+                                        Icons.Default.Feedback,
+                                        contentDescription = "Feedback"
+                                    )
+                                },
+                                selected = false,
+                                onClick = {
+                                    drawerScope.launch {
+                                        drawerState.close()
+                                        val reviewManager = ReviewManagerFactory.create(context)
+                                        reviewManager.requestReviewFlow()
+                                            .addOnCompleteListener { task ->
+                                                if (task.isSuccessful) {
+                                                    val reviewInfo = task.result
+                                                    reviewManager.launchReviewFlow(
+                                                        context as Activity,
+                                                        reviewInfo
+                                                    )
+                                                } else {
+                                                    val fallbackIntent = Intent(
+                                                        Intent.ACTION_VIEW,
+                                                        Uri.parse("market://details?id=${context.packageName}")
+                                                    ).apply {
+                                                        setPackage("com.android.vending")
+                                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                    }
+                                                    context.startActivity(fallbackIntent)
+                                                }
+                                            }
+                                    }
+                                },
+                                modifier = drawerItemModifier
+                            )
+                        }
+
+                        // Sign Out at the bottom
+                        if (auth.currentUser != null) {
+                            NavigationDrawerItem(
+                                label = { Text("Sign Out") },
+                                icon = {
+                                    Icon(
+                                        Icons.Default.Logout,
+                                        contentDescription = "Sign Out"
+                                    )
+                                },
+                                selected = false,
+                                onClick = {
+                                    drawerScope.launch {
+                                        auth.signOut()
+
+                                        try {
+                                            val clearRequest = androidx.credentials.ClearCredentialStateRequest()
+                                            credentialManager.clearCredentialState(clearRequest)
+                                            Log.d("SignOut", "User credentials cleared successfully")
+                                        } catch (e: ClearCredentialException) {
+                                            Log.e(
+                                                "SignOut",
+                                                "Couldn't clear user credentials: ${e.localizedMessage}"
+                                            )
+                                        }
+
+                                        drawerState.close()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                colors = NavigationDrawerItemDefaults.colors(
+                                    unselectedIconColor = Color(0xFFD32F2F),
+                                    unselectedTextColor = Color(0xFFD32F2F)
+                                )
+                            )
+                        }
+                    }
                 }
             }
         )
@@ -1436,18 +1497,26 @@ fun OtpScreen(
                                     if (!expanded) {
                                         if (otpViewModel.auth.currentUser == null) {
                                             IconButton(onClick = {
-                                                Toast.makeText(context, "Sign-in to enable cloud sync", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(
+                                                    context,
+                                                    "Sign-in to enable cloud sync",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
                                             }) {
                                                 Icon(
                                                     imageVector = Icons.Default.CloudOff,
-                                                    contentDescription = "Syncing",
+                                                    contentDescription = "Syncing off",
                                                     tint = Color(0xFFD32F2F),
                                                 )
                                             }
                                         } else {
                                             if (isSyncing) {
                                                 IconButton(onClick = {
-                                                    Toast.makeText(context, "Codes are being synced", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Codes are being synced",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
                                                 }) {
                                                     Icon(
                                                         imageVector = Icons.Default.CloudSync,
@@ -1457,7 +1526,11 @@ fun OtpScreen(
                                                 }
                                             } else {
                                                 IconButton(onClick = {
-                                                    Toast.makeText(context, "Codes are successfully synced to the cloud", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Codes are successfully synced to the cloud",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
                                                 }) {
                                                     Icon(
                                                         imageVector = Icons.Default.CloudDone,
@@ -1523,6 +1596,14 @@ fun OtpScreen(
                             contentPadding = PaddingValues(vertical = 8.dp)
                         ) {
                             items(filteredEntries, key = { it.id }) { otp ->
+                                val userEmail = otpViewModel.auth.currentUser?.email
+
+                                if (userEmail != null) {
+                                    if (otp.email != userEmail) return@items // Skip entries not matching signed-in email
+                                } else {
+                                    if (otp.email.isNotBlank()) return@items // Skip if not anonymous
+                                }
+
                                 val progress = progressMap[otp.id] ?: 1f
 
                                 OtpCard(
@@ -1578,6 +1659,14 @@ fun OtpScreen(
                                 items = otpEntries,
                                 key = { it.id }
                             ) { otp ->
+                                val userEmail = otpViewModel.auth.currentUser?.email
+
+                                if (userEmail != null) {
+                                    if (otp.email != userEmail) return@items // Skip entries not matching signed-in email
+                                } else {
+                                    if (otp.email.isNotBlank()) return@items // Skip if not anonymous
+                                }
+
                                 val progress = progressMap[otp.id] ?: 1f
                                 val dismissState = rememberDismissState(
                                     confirmStateChange = { dismissValue ->

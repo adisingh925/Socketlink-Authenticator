@@ -7,6 +7,9 @@ data class OtpEntry(
     @SerializedName("id")
     val id: String = UUID.randomUUID().toString(),
 
+    @SerializedName("email")
+    val email : String = "",
+
     @SerializedName("codeName")
     val codeName: String = "",
 

@@ -95,7 +95,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Loads OTP secrets from storage and updates the _otpEntries StateFlow.
      */
-    private suspend fun loadOtpEntries() {
+    internal suspend fun loadOtpEntries() {
         val stored = OtpStorage.loadOtpList()
         Log.d("OtpViewModel", "Loaded ${stored.size} OTP entries from storage")
         _otpEntries.value = stored.map {
@@ -106,7 +106,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Generates OTP codes for all entries.
      */
-    private fun updateOtpCodes() {
+    internal fun updateOtpCodes() {
         _otpEntries.value = _otpEntries.value.map { otp ->
             val code = OtpUtils.generateOtp(
                 otp.secret,
@@ -251,12 +251,18 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                         doc.toObject(OtpEntry::class.java)
                     }
 
-                    /** Get current local entries from state */
-                    val localEntries = _otpEntries.value
+                    /** Load all local entries */
+                    val allLocalEntries = _otpEntries.value
+
+                    /** Only filter for syncing logic */
+                    val filteredLocalEntries = allLocalEntries.filter {
+                        val userEmail = auth.currentUser?.email
+                        if (userEmail != null) it.email == userEmail else it.email.isBlank()
+                    }
 
                     /** Create maps for quick lookup by ID */
                     val cloudMap = cloudEntries.associateBy { it.id }
-                    val localMap = localEntries.associateBy { it.id }
+                    val localMap = filteredLocalEntries.associateBy { it.id }
 
                     /**
                      * Filter entries that are new or updated in the cloud compared to local data.
@@ -271,7 +277,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                      * Filter local entries that are missing in the cloud.
                      * These should be uploaded to cloud to keep sync.
                      */
-                    val missingInCloud = localEntries.filter { localEntry ->
+                    val missingInCloud = filteredLocalEntries.filter { localEntry ->
                         cloudMap[localEntry.id] == null
                     }
 
@@ -284,7 +290,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                      * Merge local entries with new/updated cloud entries,
                      * remove duplicates by ID, and regenerate OTP codes for each entry.
                      */
-                    val merged = (localEntries + updatedOrNewFromCloud)
+                    val merged = (allLocalEntries + updatedOrNewFromCloud)
                         .distinctBy { it.id }
                         .map {
                             it.copy(
@@ -336,6 +342,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
             val otpDoc = collection.document(otp.id)
             val data = mapOf(
                 "id" to otp.id,
+                "email" to otp.email,
                 "codeName" to otp.codeName,
                 "secret" to otp.secret,
                 "digits" to otp.digits,
@@ -360,7 +367,8 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
 
         startSyncing()
 
-        val otpDoc = db.collection("users").document(auth.uid.toString()).collection("OTPs").document(otpId)
+        val otpDoc =
+            db.collection("users").document(auth.uid.toString()).collection("OTPs").document(otpId)
         otpDoc.delete().addOnSuccessListener {
             Log.d("FirebaseSync", "Deleted OTP $otpId successfully")
         }.addOnFailureListener { e ->
