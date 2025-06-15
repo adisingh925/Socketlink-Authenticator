@@ -367,8 +367,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
 
         startSyncing()
 
-        val otpDoc =
-            db.collection("users").document(auth.uid.toString()).collection("OTPs").document(otpId)
+        val otpDoc = db.collection("users").document(auth.uid.toString()).collection("OTPs").document(otpId)
         otpDoc.delete().addOnSuccessListener {
             Log.d("FirebaseSync", "Deleted OTP $otpId successfully")
         }.addOnFailureListener { e ->

@@ -7,7 +7,6 @@ import java.security.MessageDigest
 
 object Utils {
     private const val PREF_NAME = "prefs"
-    private const val KEY_USER_ID = "unique_user_id"
     private const val APP_LOCK_KEY = "app_lock_enabled"
     private const val UNLOCK_OPTION_KEY = "unlock_option"
     private const val CAMERA_PERMISSION_REQUESTED_KEY = "camera_permission_requested"
@@ -15,26 +14,6 @@ object Utils {
     private const val CLOUD_SYNC_ENABLED_KEY = "cloud_sync_enabled"
     private const val SYNCING_KEY = "syncing_key"
     private const val DEFAULT_UNLOCK_OPTION = 0
-
-    fun getOrCreateUserId(context: Context): String {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-
-        val existingId = prefs.getString(KEY_USER_ID, null)
-        if (existingId != null) {
-            return existingId
-        }
-
-        val newId = UUID.randomUUID().toString()
-        prefs.edit { putString(KEY_USER_ID, newId) }
-        return newId
-    }
-
-    fun sha256(input: String): String {
-        val bytes = input.toByteArray(Charsets.UTF_8)
-        val digest = MessageDigest.getInstance("SHA-256")
-        val hashBytes = digest.digest(bytes)
-        return hashBytes.joinToString("") { "%02x".format(it) }
-    }
 
     /** Get whether app lock is enabled */
     fun isAppLockEnabled(context: Context): Boolean {

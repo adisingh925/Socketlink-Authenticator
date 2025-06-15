@@ -286,24 +286,6 @@ class MainActivity : AppCompatActivity() {
                 /** state to record the timestamp of when the app goes to background */
                 var backgroundTimestamp by rememberSaveable { mutableStateOf<Long?>(null) }
 
-                // In your Activity or Composable (remember to use rememberLauncherForActivityResult in Compose):
-                val launcher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.StartIntentSenderForResult()
-                ) { result ->
-                    if (result.resultCode == RESULT_OK) {
-                        val credential = Identity.getSignInClient(this)
-                            .getSignInCredentialFromIntent(result.data)
-                        val idToken = credential.googleIdToken
-                        val email = credential.id
-                        val photo = credential.profilePictureUri
-                        // TODO: Use idToken and email to authenticate with your backend or Firebase
-                        Log.d("GoogleSignIn", "ID Token: $idToken, Email: $email, Photo: $photo")
-                        firebaseAuthWithGoogle(idToken.toString(), otpViewModel, this)
-                    } else {
-                        Log.d("GoogleSignIn", "Sign-in failed or cancelled")
-                    }
-                }
-
                 DisposableEffect(lifecycleOwner) {
                     val observer = LifecycleEventObserver { _, event ->
                         when (event) {
@@ -314,8 +296,7 @@ class MainActivity : AppCompatActivity() {
 
                             Lifecycle.Event.ON_START -> {
                                 /** Check unlock option and elapsed time */
-                                val unlockSeconds =
-                                    Utils.getUnlockOption(context) // in seconds
+                                val unlockSeconds = Utils.getUnlockOption(context) // in seconds
                                 val unlockMillis = unlockSeconds * 1000L
                                 val now = System.currentTimeMillis()
 
@@ -340,6 +321,24 @@ class MainActivity : AppCompatActivity() {
 
                     onDispose {
                         lifecycleOwner.lifecycle.removeObserver(observer)
+                    }
+                }
+
+                // In your Activity or Composable (remember to use rememberLauncherForActivityResult in Compose):
+                val launcher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.StartIntentSenderForResult()
+                ) { result ->
+                    if (result.resultCode == RESULT_OK) {
+                        val credential = Identity.getSignInClient(this)
+                            .getSignInCredentialFromIntent(result.data)
+                        val idToken = credential.googleIdToken
+                        val email = credential.id
+                        val photo = credential.profilePictureUri
+                        // TODO: Use idToken and email to authenticate with your backend or Firebase
+                        Log.d("GoogleSignIn", "ID Token: $idToken, Email: $email, Photo: $photo")
+                        firebaseAuthWithGoogle(idToken.toString(), otpViewModel, this)
+                    } else {
+                        Log.d("GoogleSignIn", "Sign-in failed or cancelled")
                     }
                 }
 
@@ -512,7 +511,8 @@ class MainActivity : AppCompatActivity() {
                                                         code = "",
                                                         algorithm = obj["t"].AsString(),
                                                         period = obj["p"].AsInt32(),
-                                                        digits = obj["d"].AsInt32()
+                                                        digits = obj["d"].AsInt32(),
+                                                        email = otpViewModel.auth.currentUser?.email ?: "",
                                                     )
 
                                                     list.add(otpEntry)
@@ -597,8 +597,7 @@ private fun firebaseAuthWithGoogle(idToken: String, otpViewModel: OtpViewModel, 
         otpViewModel.toggleCloudSync(Utils.isCloudSyncEnabled(context))
     }.addOnFailureListener { e ->
         Log.e("FirebaseAuth", "Sign-in failed: ${e.localizedMessage}")
-        Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG)
-            .show()
+        Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
     }
 }
 
@@ -928,7 +927,7 @@ fun AuthenticationScreenWrapper(
 ) {
     /** Access app lock preference */
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("settings_prefs", Context.MODE_PRIVATE)
+    val prefs = context.getSharedPreferences("prefs", Context.MODE_PRIVATE)
     val appLockEnabled = remember { prefs.getBoolean("app_lock_enabled", false) }
     val activity = (context as? Activity)
 
