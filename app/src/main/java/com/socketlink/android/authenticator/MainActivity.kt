@@ -2074,6 +2074,14 @@ fun SelectOtpForExportScreen(
                         contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp)
                     ) {
                         items(loadedOTPs) { otp ->
+                            val userEmail = otpViewModel.auth.currentUser?.email
+
+                            if (userEmail != null) {
+                                if (otp.email != userEmail) return@items // Skip entries not matching signed-in email
+                            } else {
+                                if (otp.email.isNotBlank()) return@items // Skip if not anonymous
+                            }
+
                             val isSelected = otp in selectedSet
                             Card(
                                 modifier = Modifier
