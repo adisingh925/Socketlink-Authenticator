@@ -1435,7 +1435,9 @@ fun OtpScreen(
 
                                     if (!expanded) {
                                         if (otpViewModel.auth.currentUser == null) {
-                                            IconButton(onClick = { /* Disabled while syncing */ }) {
+                                            IconButton(onClick = {
+                                                Toast.makeText(context, "Sign-in to enable cloud sync", Toast.LENGTH_SHORT).show()
+                                            }) {
                                                 Icon(
                                                     imageVector = Icons.Default.CloudOff,
                                                     contentDescription = "Syncing",
@@ -1444,7 +1446,9 @@ fun OtpScreen(
                                             }
                                         } else {
                                             if (isSyncing) {
-                                                IconButton(onClick = { /* Disabled while syncing */ }) {
+                                                IconButton(onClick = {
+                                                    Toast.makeText(context, "Codes are being synced", Toast.LENGTH_SHORT).show()
+                                                }) {
                                                     Icon(
                                                         imageVector = Icons.Default.CloudSync,
                                                         contentDescription = "Syncing",
@@ -1452,7 +1456,9 @@ fun OtpScreen(
                                                     )
                                                 }
                                             } else {
-                                                IconButton(onClick = { /* Trigger sync */ }) {
+                                                IconButton(onClick = {
+                                                    Toast.makeText(context, "Codes are successfully synced to the cloud", Toast.LENGTH_SHORT).show()
+                                                }) {
                                                     Icon(
                                                         imageVector = Icons.Default.CloudDone,
                                                         contentDescription = "Sync",
