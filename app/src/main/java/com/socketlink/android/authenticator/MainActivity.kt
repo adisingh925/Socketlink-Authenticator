@@ -98,6 +98,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
@@ -1435,9 +1436,9 @@ fun OtpScreen(
                                         if(otpViewModel.auth.currentUser == null) {
                                             IconButton(onClick = { /* Disabled while syncing */ }) {
                                                 Icon(
-                                                    imageVector = Icons.Default.SyncProblem,
+                                                    imageVector = Icons.Default.CloudOff,
                                                     contentDescription = "Syncing",
-                                                    tint = MaterialTheme.colorScheme.error
+                                                    tint = Color(0xFFD32F2F),
                                                 )
                                             }
                                         } else {
@@ -1446,7 +1447,7 @@ fun OtpScreen(
                                                     Icon(
                                                         imageVector = Icons.Default.CloudSync,
                                                         contentDescription = "Syncing",
-                                                        tint = MaterialTheme.colorScheme.secondary
+                                                        tint = Color(0xFFFFA000)
                                                     )
                                                 }
                                             } else {
@@ -1454,7 +1455,7 @@ fun OtpScreen(
                                                     Icon(
                                                         imageVector = Icons.Default.CloudDone,
                                                         contentDescription = "Sync",
-                                                        tint = MaterialTheme.colorScheme.secondary
+                                                        tint = Color(0xFF388E3C)
                                                     )
                                                 }
                                             }

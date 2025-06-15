@@ -13,7 +13,7 @@ android {
         applicationId = "com.socketlink.android.authenticator"
         minSdk = 24
         targetSdk = 35
-        versionCode = 17
+        versionCode = 18
         versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

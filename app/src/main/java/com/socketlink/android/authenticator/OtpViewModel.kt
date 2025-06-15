@@ -214,81 +214,6 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Starts listening for real-time changes in the cloud OTP collection.
-     * Updates local data only when entries are new or have changed,
-     * and ignores entries that are identical between local and cloud.
-     */
-//    fun startListeningForCloudChanges() {
-//        startSyncing()
-//
-//        if (firestoreListener != null) {
-//            stopSyncing()
-//            Log.d("FirebaseSync", "Listener already active")
-//            return
-//        }
-//
-//        val collectionRef = db.collection("users").document(userId).collection("OTPs")
-//
-//        firestoreListener = collectionRef.addSnapshotListener { snapshot, error ->
-//            if (error != null) {
-//                stopSyncing()
-//                Log.e("FirebaseSync", "Snapshot listener error", error)
-//                return@addSnapshotListener
-//            }
-//
-//            if (snapshot != null) {
-//                viewModelScope.launch {
-//                    val cloudEntries = snapshot.documents.mapNotNull { it.toObject(OtpEntry::class.java) }
-//
-//                    val localEntries = _otpEntries.value
-//                    val cloudMap = cloudEntries.associateBy { it.id }
-//                    val localMap = localEntries.associateBy { it.id }
-//
-//                    /** Filter entries that are new or updated in cloud */
-//                    val updatedOrNewFromCloud = cloudEntries.filter { cloudEntry ->
-//                        val local = localMap[cloudEntry.id]
-//                        local == null || !cloudEntry.isContentEqual(local)
-//                    }
-//
-//                    /** Filter local-only entries that are not in the cloud */
-//                    val missingInCloud = localEntries.filter { localEntry ->
-//                        cloudMap[localEntry.id] == null
-//                    }
-//
-//                    /** Upload missing local entries to the cloud */
-//                    if (missingInCloud.isNotEmpty()) {
-//                        uploadUpdatedOrNewOTPs(missingInCloud)
-//                    }
-//
-//                    /** Merge all entries */
-//                    val merged = (localEntries + updatedOrNewFromCloud)
-//                        .distinctBy { it.id }
-//                        .map {
-//                            it.copy(
-//                                code = OtpUtils.generateOtp(
-//                                    it.secret,
-//                                    it.digits,
-//                                    it.algorithm,
-//                                    it.period
-//                                )
-//                            )
-//                        }
-//
-//                    _otpEntries.value = merged
-//                    OtpStorage.saveOtpList(merged)
-//
-//                    Log.d(
-//                        "FirebaseSync",
-//                        "Realtime sync: ${updatedOrNewFromCloud.size} from cloud, ${missingInCloud.size} uploaded"
-//                    )
-//                }
-//            }
-//
-//            stopSyncing()
-//        }
-//    }
-
-    /**
      * Checks if the content of this OtpEntry equals the other OtpEntry.
      *
      * Compares all fields except for the dynamic 'code' field.
@@ -313,9 +238,6 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             Log.d("FirebaseSync", "Fetching OTPs for user: ${auth.uid}")
         }
-
-        /** Indicate syncing has started */
-        startSyncing()
 
         /** Fetch all OTP entries from Firestore cloud collection */
         db.collection("users").document(auth.uid.toString()).collection("OTPs").get()
