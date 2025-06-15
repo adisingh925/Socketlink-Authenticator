@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentSender
-import android.credentials.ClearCredentialStateRequest
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
@@ -115,7 +114,6 @@ import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.outlined.Inbox
@@ -208,13 +206,14 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import coil.compose.rememberAsyncImagePainter
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.google.accompanist.navigation.animation.AnimatedNavHost
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
@@ -222,12 +221,9 @@ import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
 import com.google.android.gms.auth.api.identity.BeginSignInRequest
 import com.google.android.gms.auth.api.identity.Identity
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.play.core.review.ReviewManagerFactory
-import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.auth.auth
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import com.google.zxing.BarcodeFormat
@@ -512,7 +508,8 @@ class MainActivity : AppCompatActivity() {
                                                         algorithm = obj["t"].AsString(),
                                                         period = obj["p"].AsInt32(),
                                                         digits = obj["d"].AsInt32(),
-                                                        email = otpViewModel.auth.currentUser?.email ?: "",
+                                                        email = otpViewModel.auth.currentUser?.email
+                                                            ?: "",
                                                     )
 
                                                     list.add(otpEntry)
@@ -597,7 +594,8 @@ private fun firebaseAuthWithGoogle(idToken: String, otpViewModel: OtpViewModel, 
         otpViewModel.toggleCloudSync(Utils.isCloudSyncEnabled(context))
     }.addOnFailureListener { e ->
         Log.e("FirebaseAuth", "Sign-in failed: ${e.localizedMessage}")
-        Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG)
+            .show()
     }
 }
 
@@ -1416,9 +1414,13 @@ fun OtpScreen(
                                         auth.signOut()
 
                                         try {
-                                            val clearRequest = androidx.credentials.ClearCredentialStateRequest()
+                                            val clearRequest =
+                                                androidx.credentials.ClearCredentialStateRequest()
                                             credentialManager.clearCredentialState(clearRequest)
-                                            Log.d("SignOut", "User credentials cleared successfully")
+                                            Log.d(
+                                                "SignOut",
+                                                "User credentials cleared successfully"
+                                            )
                                         } catch (e: ClearCredentialException) {
                                             Log.e(
                                                 "SignOut",
@@ -1492,73 +1494,75 @@ fun OtpScreen(
                                             )
                                         }
                                     }
-
                                     if (!expanded) {
-                                        if (otpViewModel.auth.currentUser == null) {
-                                            IconButton(onClick = {
-                                                Toast.makeText(
-                                                    context,
-                                                    "Sign-in to enable cloud sync",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            }) {
-                                                Icon(
-                                                    imageVector = Icons.Default.CloudOff,
-                                                    contentDescription = "Syncing off",
-                                                    tint = Color(0xFFD32F2F),
-                                                )
-                                            }
-                                        } else {
-                                            if (isSyncing) {
-                                                IconButton(onClick = {
-                                                    Toast.makeText(
-                                                        context,
-                                                        "Codes are being synced",
-                                                        Toast.LENGTH_SHORT
-                                                    ).show()
-                                                }) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.CloudSync,
-                                                        contentDescription = "Syncing",
-                                                        tint = Color(0xFFFFA000)
-                                                    )
-                                                }
-                                            } else {
-                                                IconButton(onClick = {
-                                                    Toast.makeText(
-                                                        context,
-                                                        "Codes are successfully synced to the cloud",
-                                                        Toast.LENGTH_SHORT
-                                                    ).show()
-                                                }) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.CloudDone,
-                                                        contentDescription = "Sync",
-                                                        tint = Color(0xFF388E3C)
-                                                    )
-                                                }
-                                            }
-                                        }
-
                                         IconButton(onClick = {
                                             launchGoogleOneTapSignIn(context, launcher)
                                         }) {
-                                            if (auth.currentUser != null) {
-                                                Image(
-                                                    painter = rememberAsyncImagePainter(auth.currentUser?.photoUrl),
-                                                    contentDescription = "User Profile Picture",
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier
-                                                        .size(32.dp)
-                                                        .clip(CircleShape)
-                                                )
-                                            } else {
-                                                Icon(
-                                                    imageVector = Icons.Default.AccountCircle,
-                                                    contentDescription = "Account",
-                                                    tint = MaterialTheme.colorScheme.secondary,
-                                                    modifier = Modifier.size(32.dp)
-                                                )
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier.size(45.dp)
+                                            ) {
+                                                when {
+                                                    otpViewModel.auth.currentUser == null -> {
+                                                        CircularProgressIndicator(
+                                                            progress = 1f,
+                                                            strokeWidth = 2.dp,
+                                                            color = Color(0xFFD32F2F),
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    }
+
+                                                    isSyncing -> {
+                                                        CircularProgressIndicator(
+                                                            modifier = Modifier.fillMaxSize(),
+                                                            strokeWidth = 2.dp,
+                                                            color = Color(0xFFFFA000)
+                                                        )
+                                                    }
+
+                                                    else -> {
+                                                        CircularProgressIndicator(
+                                                            progress = 1f,
+                                                            strokeWidth = 2.dp,
+                                                            color = Color(0xFF388E3C),
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    }
+                                                }
+
+                                                if (otpViewModel.auth.currentUser != null) {
+                                                    Image(
+                                                        painter = rememberAsyncImagePainter(
+                                                            ImageRequest.Builder(context)
+                                                                .data(otpViewModel.auth.currentUser?.photoUrl)
+                                                                .crossfade(300)
+                                                                .diskCachePolicy(CachePolicy.ENABLED)
+                                                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                                                .build()
+                                                        ),
+                                                        contentDescription = "User Profile Picture",
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier
+                                                            .size(32.dp)
+                                                            .clip(CircleShape)
+                                                    )
+                                                } else {
+                                                    Image(
+                                                        painter = rememberAsyncImagePainter(
+                                                            ImageRequest.Builder(context)
+                                                                .data("https://cdn.pixabay.com/photo/2023/02/18/11/00/icon-7797704_640.png")
+                                                                .crossfade(300)
+                                                                .diskCachePolicy(CachePolicy.ENABLED)
+                                                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                                                .build()
+                                                        ),
+                                                        contentDescription = "User Profile Picture",
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier
+                                                            .size(32.dp)
+                                                            .clip(CircleShape)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
