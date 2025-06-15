@@ -590,7 +590,8 @@ private fun firebaseAuthWithGoogle(idToken: String, otpViewModel: OtpViewModel, 
         otpViewModel.fetchAllFromCloud()
     }.addOnFailureListener { e ->
         Log.e("FirebaseAuth", "Sign-in failed: ${e.localizedMessage}")
-        Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG)
+            .show()
     }
 }
 
@@ -1433,7 +1434,7 @@ fun OtpScreen(
                                     }
 
                                     if (!expanded) {
-                                        if(otpViewModel.auth.currentUser == null) {
+                                        if (otpViewModel.auth.currentUser == null) {
                                             IconButton(onClick = { /* Disabled while syncing */ }) {
                                                 Icon(
                                                     imageVector = Icons.Default.CloudOff,
@@ -1469,7 +1470,9 @@ fun OtpScreen(
                                                     painter = rememberAsyncImagePainter(auth.currentUser?.photoUrl),
                                                     contentDescription = "User Profile Picture",
                                                     contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.size(32.dp).clip(CircleShape)
+                                                    modifier = Modifier
+                                                        .size(32.dp)
+                                                        .clip(CircleShape)
                                                 )
                                             } else {
                                                 Icon(
