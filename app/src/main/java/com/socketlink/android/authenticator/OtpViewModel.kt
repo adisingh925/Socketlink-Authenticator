@@ -136,7 +136,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Loads OTP secrets from storage and updates the _otpEntries StateFlow.
      */
-    internal suspend fun loadOtpEntries() {
+    internal suspend fun loadOtpEntries() = withContext(Dispatchers.IO) {
         _otpEntries.value = repository.getAllOTPs(auth.currentUser?.email ?: "")
         Log.d("OtpViewModel", "Loaded ${_otpEntries.value.size} OTP entries from storage")
     }
