@@ -593,7 +593,8 @@ private fun firebaseAuthWithGoogle(idToken: String, otpViewModel: OtpViewModel, 
         Log.d("FirebaseAuth", "Sign-in successful")
     }.addOnFailureListener { e ->
         Log.e("FirebaseAuth", "Sign-in failed: ${e.localizedMessage}")
-        Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG)
+            .show()
     }
 }
 
@@ -1625,7 +1626,11 @@ fun OtpScreen(
 
                 PullToRefreshBox(
                     isRefreshing = isSyncing,
-                    onRefresh = { otpViewModel.fetchAllFromCloud() },
+                    onRefresh = {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            otpViewModel.fetchAllFromCloudSafe()
+                        }
+                    },
                     modifier = Modifier.fillMaxSize()
                 ) {
                     LazyColumn(
