@@ -1397,7 +1397,6 @@ fun OtpScreen(
                             )
                         }
 
-                        // Sign Out at the bottom
                         if (auth.currentUser != null) {
                             NavigationDrawerItem(
                                 label = { Text("Sign Out") },
@@ -1453,8 +1452,7 @@ fun OtpScreen(
             ) {
                 SearchBar(
                     modifier = Modifier
-                        .zIndex(1f)
-                        .padding(bottom = 8.dp),
+                        .zIndex(1f),
                     inputField = {
                         SearchBarDefaults.InputField(
                             query = textFieldState.text.toString(),
@@ -1595,7 +1593,7 @@ fun OtpScreen(
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(vertical = 8.dp)
+                            contentPadding = PaddingValues(vertical = 16.dp)
                         ) {
                             items(filteredEntries, key = { it.id }) { otp ->
                                 val userEmail = otpViewModel.auth.currentUser?.email
@@ -1615,8 +1613,7 @@ fun OtpScreen(
                                         .fillMaxWidth()
                                         .clickable {
                                             expanded = false
-                                        }
-                                        .padding(vertical = 8.dp),
+                                        },
                                     SearchBarDefaults.colors().containerColor
                                 )
                             }
@@ -1633,95 +1630,131 @@ fun OtpScreen(
                     },
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize(),
-                    ) {
-                        if (otpEntries.isEmpty()) {
-                            item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillParentMaxSize(),
-                                    contentAlignment = Alignment.Center
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val tags = listOf("All", "Office", "Home")
+
+                            tags.forEach { tag ->
+                                Card(
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surface
+                                    ),
+                                    border = BorderStroke(
+                                        width = 1.dp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                                    )
                                 ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Info,
-                                            contentDescription = "No OTP",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(48.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
                                         Text(
-                                            text = "It’s a little empty in here!",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                            text = tag,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 }
                             }
-                        } else {
-                            items(
-                                items = otpEntries,
-                                key = { it.id }
-                            ) { otp ->
-//                                Log.d("OtpScreen", "Rendering OTP: ${otp.codeName} (${otp.id})")
+                        }
 
-                                val userEmail = otpViewModel.auth.currentUser?.email
-
-                                if (userEmail != null) {
-                                    if (otp.email != userEmail) return@items // Skip entries not matching signed-in email
-                                } else {
-                                    if (otp.email.isNotBlank()) return@items // Skip if not anonymous
-                                }
-
-                                val progress = progressMap[otp.id] ?: 1f
-                                val dismissState = rememberDismissState(
-                                    confirmStateChange = { dismissValue ->
-                                        if (dismissValue == DismissValue.DismissedToStart) {
-                                            otpPendingDeletion = otp
-                                            false
-                                        } else false
-                                    }
-                                )
-
-                                SwipeToDismiss(
-                                    state = dismissState,
-                                    directions = setOf(DismissDirection.EndToStart),
-                                    dismissThresholds = { FractionalThreshold(0.8f) },
-                                    background = {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(MaterialTheme.colorScheme.surface)
-                                                .padding(horizontal = 20.dp),
-                                            contentAlignment = Alignment.CenterEnd
-                                        ) {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize(),
+                        ) {
+                            if (otpEntries.isEmpty()) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillParentMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Icon(
-                                                imageVector = Icons.Default.Delete,
-                                                contentDescription = "Delete",
-                                                tint = MaterialTheme.colorScheme.primary
+                                                imageVector = Icons.Outlined.Info,
+                                                contentDescription = "No OTP",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(48.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Text(
+                                                text = "It’s a little empty in here!",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(
+                                                    alpha = 0.7f
+                                                )
                                             )
                                         }
-                                    },
-                                    modifier = Modifier
-                                        .padding(vertical = 8.dp)
-                                        .animateItem()
-                                ) {
-                                    OtpCard(
-                                        otp = otp,
-                                        progress = progress,
-                                        modifier = Modifier.fillMaxWidth()
+                                    }
+                                }
+                            } else {
+                                items(
+                                    items = otpEntries,
+                                    key = { it.id }
+                                ) { otp ->
+                                    val userEmail = otpViewModel.auth.currentUser?.email
+
+                                    if (userEmail != null) {
+                                        if (otp.email != userEmail) return@items // Skip entries not matching signed-in email
+                                    } else {
+                                        if (otp.email.isNotBlank()) return@items // Skip if not anonymous
+                                    }
+
+                                    val progress = progressMap[otp.id] ?: 1f
+                                    val dismissState = rememberDismissState(
+                                        confirmStateChange = { dismissValue ->
+                                            if (dismissValue == DismissValue.DismissedToStart) {
+                                                otpPendingDeletion = otp
+                                                false
+                                            } else false
+                                        }
                                     )
+
+                                    SwipeToDismiss(
+                                        state = dismissState,
+                                        directions = setOf(DismissDirection.EndToStart),
+                                        dismissThresholds = { FractionalThreshold(0.8f) },
+                                        background = {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(MaterialTheme.colorScheme.surface)
+                                                    .padding(horizontal = 20.dp),
+                                                contentAlignment = Alignment.CenterEnd
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Delete",
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .animateItem()
+                                    ) {
+                                        OtpCard(
+                                            otp = otp,
+                                            progress = progress,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
+
             }
         }
     }
-
 
     /** Confirmation dialog to delete OTP */
     if (otpPendingDeletion != null) {
@@ -1805,7 +1838,8 @@ fun OtpCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 16.dp),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = color
