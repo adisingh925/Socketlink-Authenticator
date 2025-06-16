@@ -85,21 +85,21 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Add OTP */
     fun addOtp(otpList: List<OtpEntry>) {
-        viewModelScope.launch(Dispatchers.Main) {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.insertOtp(otpList)
         }
     }
 
     /** Update OTP */
     fun updateOtp(otpEntry: OtpEntry) {
-        viewModelScope.launch(Dispatchers.Main) {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.updateOtp(otpEntry)
         }
     }
 
     /** Delete OTP */
     fun deleteOtp(otpEntry: OtpEntry) {
-        viewModelScope.launch(Dispatchers.Main) {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.deleteOtp(otpEntry)
         }
     }
