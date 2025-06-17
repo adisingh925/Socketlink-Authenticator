@@ -56,6 +56,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -423,21 +424,25 @@ class MainActivity : AppCompatActivity() {
                          */
                         composable("add") {
                             AddOtpScreen(
-                                onAdd = { codeName, secret, digits, algorithm, period ->
-                                    otpViewModel.addSecret(
-                                        OtpEntry(
-                                            codeName = codeName,
-                                            secret = secret,
-                                            code = "",
-                                            digits = digits,
-                                            algorithm = algorithm,
-                                            period = period,
-                                            email = otpViewModel.auth.currentUser?.email ?: ""
+                                onAdd = { codeName, secret, digits, algorithm, period, tag ->
+                                    otpViewModel.addSecrets(
+                                        listOf(
+                                            OtpEntry(
+                                                codeName = codeName,
+                                                secret = secret,
+                                                code = "",
+                                                tag = tag,
+                                                digits = digits,
+                                                algorithm = algorithm,
+                                                period = period,
+                                                email = otpViewModel.auth.currentUser?.email ?: ""
+                                            )
                                         )
                                     )
                                     navController.popBackStack()
                                 },
-                                onCancel = { navController.popBackStack() }
+                                onCancel = { navController.popBackStack() },
+                                initialTags = otpViewModel.uniqueTags.value
                             )
                         }
 
@@ -473,7 +478,7 @@ class MainActivity : AppCompatActivity() {
                                 when (mode) {
                                     "scan" -> {
                                         parseOtpAuthUri(code)?.let { otpSecret ->
-                                            otpViewModel.addSecret(otpSecret)
+                                            otpViewModel.addSecrets(listOf(otpSecret))
                                         }
                                     }
 
@@ -504,12 +509,12 @@ class MainActivity : AppCompatActivity() {
                                                     val otpEntry = OtpEntry(
                                                         codeName = obj["l"].AsString(),
                                                         secret = obj["s"].AsString(),
-                                                        code = "",
                                                         algorithm = obj["t"].AsString(),
                                                         period = obj["p"].AsInt32(),
                                                         digits = obj["d"].AsInt32(),
                                                         email = otpViewModel.auth.currentUser?.email
                                                             ?: "",
+                                                        tag = obj["g"].AsString() ?: Utils.ALL,
                                                     )
 
                                                     list.add(otpEntry)
@@ -1216,6 +1221,10 @@ fun OtpScreen(
 
     val credentialManager = remember { CredentialManager.create(context) }
 
+    val selectedTag by otpViewModel.selectedTag.collectAsState()
+
+    val tags by otpViewModel.uniqueTags.collectAsState()
+
     /**
      * Handle camera permission result and navigate to the scanner screen
      * only when permission is granted and the button was clicked.
@@ -1631,35 +1640,46 @@ fun OtpScreen(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        Row(
+                        FlowRow(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            val tags = listOf("All", "Office", "Home")
-
                             tags.forEach { tag ->
+                                val isSelected = tag == selectedTag
+
                                 Card(
                                     shape = RoundedCornerShape(12.dp),
                                     colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surface
+                                        containerColor = if (isSelected)
+                                            MaterialTheme.colorScheme.primary
+                                        else
+                                            MaterialTheme.colorScheme.surface
                                     ),
                                     border = BorderStroke(
                                         width = 1.dp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                                    )
+                                        color = if (isSelected)
+                                            MaterialTheme.colorScheme.primary
+                                        else
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                                    ),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable { otpViewModel.onTagSelected(tag) }
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                                             .padding(horizontal = 12.dp, vertical = 6.dp)
                                     ) {
                                         Text(
                                             text = tag,
                                             style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.primary
+                                            color = if (isSelected)
+                                                MaterialTheme.colorScheme.onPrimary
+                                            else
+                                                MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 }
@@ -1751,7 +1771,6 @@ fun OtpScreen(
                         }
                     }
                 }
-
             }
         }
     }
@@ -1951,6 +1970,7 @@ private fun encodeEntriesToBase64(entries: List<OtpEntry>): String {
         obj.Add("t", it.algorithm)
         obj.Add("p", it.period)
         obj.Add("d", it.digits)
+        obj.Add("g", it.tag)
         cborArray.Add(obj)
     }
 
@@ -2498,8 +2518,9 @@ fun TransferCodesScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddOtpScreen(
-    onAdd: (codeName: String, secret: String, digits: Int, algorithm: String, period: Int) -> Unit,
-    onCancel: () -> Unit
+    onAdd: (codeName: String, secret: String, digits: Int, algorithm: String, period: Int, tag: String) -> Unit,
+    onCancel: () -> Unit,
+    initialTags: List<String> = Utils.defaultTags // Pass existing tags from outside, e.g., from ViewModel
 ) {
     var codeName by rememberSaveable { mutableStateOf("") }
     var secret by rememberSaveable { mutableStateOf("") }
@@ -2508,9 +2529,63 @@ fun AddOtpScreen(
     var algorithm by rememberSaveable { mutableStateOf("SHA1") }
     var period by rememberSaveable { mutableStateOf("30") }
 
+    var tags by remember { mutableStateOf(initialTags) }
+    var selectedTag by rememberSaveable { mutableStateOf(Utils.ALL) }
+    var addTagDialogVisible by remember { mutableStateOf(false) }
+    var newTagText by rememberSaveable { mutableStateOf("") }
+
     val canAdd = codeName.isNotBlank() && secret.isNotBlank() && digits.toIntOrNull() != null &&
-            algorithm.isNotBlank() && period.toIntOrNull() != null
+            algorithm.isNotBlank() && period.toIntOrNull() != null && selectedTag.isNotBlank()
+
     val focusManager = LocalFocusManager.current
+
+    if (addTagDialogVisible) {
+        AlertDialog(
+            onDismissRequest = { addTagDialogVisible = false },
+            title = { Text("Add New Tag") },
+            text = {
+                OutlinedTextField(
+                    value = newTagText,
+                    onValueChange = { newTagText = it },
+                    label = { Text("Tag Name") },
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                            alpha = 0.05f
+                        )
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val trimmedTag = newTagText.trim()
+                        if (trimmedTag.isNotEmpty() && !tags.contains(trimmedTag)) {
+                            tags = tags + trimmedTag
+                            selectedTag = trimmedTag
+                        }
+                        newTagText = ""
+                        addTagDialogVisible = false
+                    }
+                ) {
+                    Text("Add")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    newTagText = ""
+                    addTagDialogVisible = false
+                }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -2546,7 +2621,7 @@ fun AddOtpScreen(
                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                maxLines = 3, // Allow up to 3 lines
+                maxLines = 3,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.05f)
@@ -2561,12 +2636,88 @@ fun AddOtpScreen(
                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                maxLines = 3, // Allow up to 3 lines
+                maxLines = 3,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.05f)
                 )
             )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                var expanded by remember { mutableStateOf(false) }
+
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    OutlinedTextField(
+                        readOnly = true,
+                        value = selectedTag,
+                        onValueChange = {},
+                        label = { Text("Tag") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                alpha = 0.1f
+                            ),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                alpha = 0.05f
+                            )
+                        )
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        tags.forEach { tagOption ->
+                            DropdownMenuItem(
+                                text = { Text(tagOption) },
+                                onClick = {
+                                    selectedTag = tagOption
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                    ),
+                    modifier = Modifier
+                        .size(40.dp, 40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { addTagDialogVisible = true },
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Add Tag",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
 
             val roundedShape = RoundedCornerShape(12.dp)
             val rotationDegree by animateFloatAsState(targetValue = if (showAdvanced) 180f else 0f)
@@ -2657,7 +2808,7 @@ fun AddOtpScreen(
                         OutlinedTextField(
                             readOnly = true,
                             value = algorithm,
-                            shape = RoundedCornerShape(12.dp),  // <-- added rounded corners here
+                            shape = RoundedCornerShape(12.dp),
                             onValueChange = {},
                             label = { Text("Algorithm") },
                             trailingIcon = {
@@ -2748,7 +2899,8 @@ fun AddOtpScreen(
                                 secret.trim(),
                                 digits.toInt(),
                                 algorithm.trim(),
-                                period.toInt()
+                                period.toInt(),
+                                selectedTag
                             )
                             focusManager.clearFocus()
                         }

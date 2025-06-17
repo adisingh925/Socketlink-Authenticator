@@ -15,6 +15,12 @@ object Utils {
     private const val SYNCING_KEY = "syncing_key"
     private const val DEFAULT_UNLOCK_OPTION = 0
 
+    const val ALL = "All"
+
+    val defaultTags = listOf(
+        ALL
+    )
+
     /** Get whether app lock is enabled */
     fun isAppLockEnabled(context: Context): Boolean {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)

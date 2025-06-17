@@ -17,6 +17,9 @@ data class OtpEntry(
     @SerializedName("codeName")
     val codeName: String = "",
 
+    @SerializedName("tag")
+    val tag: String = Utils.ALL,
+
     @SerializedName("secret")
     val secret: String = "",
 

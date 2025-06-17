@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -37,8 +38,26 @@ import kotlinx.coroutines.withContext
  */
 class OtpViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val _selectedTag = MutableStateFlow(Utils.ALL)
+    val selectedTag: StateFlow<String> = _selectedTag
+
+    private val _uniqueTags = MutableStateFlow<List<String>>(emptyList())
+    val uniqueTags: StateFlow<List<String>> = _uniqueTags
+
     private val _otpEntries = MutableStateFlow<List<OtpEntry>>(emptyList())
-    val otpEntries: StateFlow<List<OtpEntry>> = _otpEntries
+    val otpEntries: StateFlow<List<OtpEntry>> = _selectedTag
+        .combine(_otpEntries) { tag, entries ->
+            if (tag.equals(Utils.ALL, ignoreCase = true)) {
+                entries
+            } else {
+                entries.filter { it.tag == tag }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyList())
+
+    fun onTagSelected(tag: String) {
+        _selectedTag.value = tag
+    }
 
     private val _progressMap = MutableStateFlow<Map<String, Float>>(emptyMap())
     val progressMap: StateFlow<Map<String, Float>> = _progressMap
@@ -137,8 +156,11 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
      * Loads OTP secrets from storage and updates the _otpEntries StateFlow.
      */
     internal suspend fun loadOtpEntries() = withContext(Dispatchers.IO) {
-        _otpEntries.value = repository.getAllOTPs(auth.currentUser?.email ?: "")
-        Log.d("OtpViewModel", "Loaded ${_otpEntries.value.size} OTP entries from storage")
+        val entries = repository.getAllOTPs(auth.currentUser?.email ?: "")
+        _otpEntries.value = entries
+        Log.d("OtpViewModel", "Loaded ${entries.size} OTP entries from storage")
+
+        updateUniqueTags()
     }
 
     /**
@@ -200,44 +222,41 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Adds a new OTP entry and saves it securely.
      */
-    fun addSecret(secret: OtpEntry) {
-        val newEntry = secret.copy(
-            code = OtpUtils.generateOtp(
-                secret.secret,
-                secret.digits,
-                secret.algorithm,
-                secret.period
-            )
-        )
 
-        _otpEntries.value = _otpEntries.value + newEntry
-        addOtp(listOf(secret))
-
+    private fun updateUniqueTags() {
         viewModelScope.launch(Dispatchers.IO) {
-            if (Utils.isCloudSyncEnabled(application.applicationContext)) {
-                uploadUpdatedOrNewOTPs(listOf(secret))
-            }
+            val uniqueTagsFromEntries = _otpEntries.value
+                .mapNotNull { it.tag.takeIf { tag -> tag.isNotBlank() } }
+                .distinct()
+                .filterNot { it == Utils.ALL }
+
+            _uniqueTags.value = listOf(Utils.ALL) + uniqueTagsFromEntries
         }
     }
 
     fun addSecrets(secrets: List<OtpEntry>) {
-        val newEntries = secrets.map { secret ->
-            secret.copy(
-                code = OtpUtils.generateOtp(
-                    secret.secret,
-                    secret.digits,
-                    secret.algorithm,
-                    secret.period
+        viewModelScope.launch(Dispatchers.IO) {
+            val newEntries = secrets.map { secret ->
+                secret.copy(
+                    code = OtpUtils.generateOtp(
+                        secret.secret,
+                        secret.digits,
+                        secret.algorithm,
+                        secret.period
+                    )
                 )
-            )
+            }
+
+            _otpEntries.value = _otpEntries.value + newEntries
+        }.invokeOnCompletion {
+            updateUniqueTags()
         }
 
-        _otpEntries.value = _otpEntries.value + newEntries
-        addOtp(_otpEntries.value)
+        addOtp(secrets)
 
         viewModelScope.launch(Dispatchers.IO) {
             if (Utils.isCloudSyncEnabled(application.applicationContext)) {
-                uploadUpdatedOrNewOTPs(newEntries)
+                uploadUpdatedOrNewOTPs(secrets)
             }
         }
     }
@@ -346,6 +365,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
             /** Update the StateFlow and persist merged entries locally */
             _otpEntries.value = merged
             addOtp(merged)
+            updateUniqueTags()
 
             /** Log sync completion */
             Log.d(
@@ -378,6 +398,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                 "id" to otp.id,
                 "email" to otp.email,
                 "codeName" to otp.codeName,
+                "tag" to otp.tag,
                 "secret" to otp.secret,
                 "digits" to otp.digits,
                 "algorithm" to otp.algorithm,
