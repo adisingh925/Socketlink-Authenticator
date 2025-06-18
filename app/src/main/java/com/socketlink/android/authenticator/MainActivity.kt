@@ -409,7 +409,6 @@ class MainActivity : AppCompatActivity() {
                         composable("main") {
                             /** Actual OTP UI list with progress indicators */
                             OtpScreen(
-                                otpEntries = otpEntries,
                                 progressMap = progressMap,
                                 otpViewModel = otpViewModel,
                                 navController = navController,
@@ -544,7 +543,6 @@ class MainActivity : AppCompatActivity() {
                         composable("selectCodes") {
                             SelectOtpForExportScreen(
                                 navController = navController,
-                                otpEntries = otpEntries,
                                 otpViewModel = otpViewModel
                             )
                         }
@@ -1183,7 +1181,6 @@ fun openAppSettings(context: Context) {
 )
 @Composable
 fun OtpScreen(
-    otpEntries: List<OtpEntry>,
     progressMap: Map<String, Float>,
     otpViewModel: OtpViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     navController: NavController,
@@ -1199,11 +1196,13 @@ fun OtpScreen(
     /** Coroutine scope for launching drawer open/close */
     val drawerScope = rememberCoroutineScope()
 
+    /** search field text field state */
     val textFieldState = remember { TextFieldState() }
 
     /** State for search query input */
     val query = textFieldState.text.trim()
 
+    /** Camera permission state */
     val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
 
     /** Coroutine scope for launching suspend functions */
@@ -1212,6 +1211,7 @@ fun OtpScreen(
     /** Flag to indicate when the camera FAB is clicked */
     var cameraButtonClicked by remember { mutableStateOf(false) }
 
+    /** is search drawer expanded */
     var expanded by rememberSaveable { mutableStateOf(false) }
 
     val isSyncing by otpViewModel.isSyncing.collectAsState()
@@ -1221,6 +1221,10 @@ fun OtpScreen(
     val selectedTag by otpViewModel.selectedTag.collectAsState()
 
     val tags by otpViewModel.uniqueTags.collectAsState()
+
+    val otpEntries by otpViewModel.otpEntries.collectAsState(initial = emptyList())
+
+    val unfilteredEntries by otpViewModel._otpEntries.collectAsState(initial = emptyList())
 
     /**
      * Handle camera permission result and navigate to the scanner screen
@@ -1235,11 +1239,10 @@ fun OtpScreen(
 
     /** Filter OTP entries based on search query using derivedStateOf to optimize recompositions */
     val filteredEntries = if (query.isBlank()) {
-        otpEntries // show all entries when query is empty
+        unfilteredEntries
     } else {
-        otpEntries.filter {
+        unfilteredEntries.filter {
             it.codeName.contains(query, ignoreCase = true)
-            // Add other fields if needed
         }
     }
 
@@ -2012,13 +2015,13 @@ private fun createCompressedChunks(entries: List<OtpEntry>, maxBytes: Int): List
 @Composable
 fun SelectOtpForExportScreen(
     navController: NavController,
-    otpEntries: List<OtpEntry>,
     otpViewModel: OtpViewModel
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val selectedSet = remember { mutableStateListOf<OtpEntry>() }
     var loadedOTPs by remember { mutableStateOf(emptyList<OtpEntry>()) }
     var isLoading by remember { mutableStateOf(true) }
+    val otpEntries = otpViewModel.otpEntries.collectAsState(initial = emptyList()).value
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.Default) {

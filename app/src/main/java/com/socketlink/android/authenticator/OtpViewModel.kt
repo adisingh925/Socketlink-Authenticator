@@ -41,22 +41,17 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedTag = MutableStateFlow(Utils.ALL)
     val selectedTag: StateFlow<String> = _selectedTag
 
-    private val _originalOtpEntries = MutableStateFlow<List<OtpEntry>>(emptyList())
-    val originalOtpEntries: StateFlow<List<OtpEntry>> = _originalOtpEntries
-
     private val _uniqueTags = MutableStateFlow<List<String>>(emptyList())
     val uniqueTags: StateFlow<List<String>> = _uniqueTags
 
-    private val _otpEntries = MutableStateFlow<List<OtpEntry>>(emptyList())
-    val otpEntries: StateFlow<List<OtpEntry>> = _selectedTag
-        .combine(_otpEntries) { tag, entries ->
-            if (tag.equals(Utils.ALL, ignoreCase = true)) {
-                entries
-            } else {
-                entries.filter { it.tag == tag }
-            }
+    internal val _otpEntries = MutableStateFlow<List<OtpEntry>>(emptyList())
+    val otpEntries: StateFlow<List<OtpEntry>> = _selectedTag.combine(_otpEntries) { tag, entries ->
+        if (tag.equals(Utils.ALL, ignoreCase = true)) {
+            entries
+        } else {
+            entries.filter { it.tag == tag }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyList())
 
     fun onTagSelected(tag: String) {
         _selectedTag.value = tag
@@ -160,7 +155,6 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
         onTagSelected(Utils.ALL)
         val entries = repository.getAllOTPs(auth.currentUser?.email ?: "")
         Log.d("Socketlink Authenticator", "Loaded ${entries.size} OTP entries from repository")
-        _originalOtpEntries.value = entries
         _otpEntries.value = entries
         Log.d("Socketlink Authenticator", "OTP entries loaded and updated in StateFlow : ${_otpEntries.value.size}")
         updateUniqueTags()
@@ -344,7 +338,6 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
 
             /** Update the StateFlow and persist merged entries locally */
             _otpEntries.value = merged
-            _originalOtpEntries.value = merged
             addOtp(updatedOrNewFromCloud)
             updateUniqueTags()
 
@@ -403,8 +396,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
 
         startSyncing()
 
-        val otpDoc =
-            db.collection("users").document(auth.uid.toString()).collection("OTPs").document(otpId)
+        val otpDoc = db.collection("users").document(auth.uid.toString()).collection("OTPs").document(otpId)
         otpDoc.delete().addOnSuccessListener {
             Log.d("FirebaseSync", "Deleted OTP $otpId successfully")
         }.addOnFailureListener { e ->
