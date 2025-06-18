@@ -483,9 +483,8 @@ class MainActivity : AppCompatActivity() {
                                     }
 
                                     "import" -> {
-                                        withContext(Dispatchers.IO) {
-                                            val compressedBytes =
-                                                Base64.decode(code, Base64.NO_WRAP)
+                                        CoroutineScope(Dispatchers.IO).launch {
+                                            val compressedBytes = Base64.decode(code, Base64.NO_WRAP)
 
                                             val inflater = Inflater()
                                             try {
@@ -500,8 +499,7 @@ class MainActivity : AppCompatActivity() {
                                                 }
 
                                                 val decompressedBytes = outputStream.toByteArray()
-                                                val cborArray =
-                                                    CBORObject.DecodeFromBytes(decompressedBytes)
+                                                val cborArray = CBORObject.DecodeFromBytes(decompressedBytes)
 
                                                 val list = mutableListOf<OtpEntry>()
                                                 for (i in 0 until cborArray.size()) {
@@ -598,8 +596,7 @@ private fun firebaseAuthWithGoogle(idToken: String, otpViewModel: OtpViewModel, 
         Log.d("FirebaseAuth", "Sign-in successful")
     }.addOnFailureListener { e ->
         Log.e("FirebaseAuth", "Sign-in failed: ${e.localizedMessage}")
-        Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG)
-            .show()
+        Toast.makeText(context, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
     }
 }
 
