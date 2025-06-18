@@ -17,18 +17,16 @@ import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
 /**
@@ -64,9 +62,6 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
 
     val db by lazy { Firebase.firestore }
     private var firestoreListener: ListenerRegistration? = null
-
-    val isSyncing = MutableStateFlow(false)
-    var runningSyncProcesses = 0
     val auth = Firebase.auth
 
     private val repository: OtpRepository = OtpRepository(application)
@@ -101,10 +96,8 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Add OTP */
-    fun addOtp(otpList: List<OtpEntry>) {
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.insertOtp(otpList)
-        }
+    suspend fun addOtp(otpList: List<OtpEntry>) {
+        repository.insertOtp(otpList)
     }
 
     /** Update OTP */
@@ -115,49 +108,49 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Delete OTP */
-    fun deleteOtp(otpEntry: OtpEntry) {
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.deleteOtp(otpEntry)
-        }
+    suspend fun deleteOtp(otpEntry: OtpEntry) {
+        repository.deleteOtp(otpEntry)
     }
 
-    private fun startSyncing() {
-        if (runningSyncProcesses > 0) {
-            return
-        }
+    private val _activeSyncs = MutableStateFlow(0)
+    val isSyncing = _activeSyncs.map { it > 0 }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), false)
 
-        runningSyncProcesses++
-        isSyncing.value = true
+    fun startSyncing() {
+        _activeSyncs.update { it + 1 }
     }
 
-    private fun stopSyncing() {
-        if (runningSyncProcesses <= 0) {
-            return
-        }
-
-        runningSyncProcesses--
-
-        if (runningSyncProcesses > 0) {
-            return
-        }
-
-        isSyncing.value = false
+    fun stopSyncing() {
+        _activeSyncs.update { count -> maxOf(0, count - 1) }
     }
 
     /**
      * Loads OTP secrets from storage and updates the _otpEntries StateFlow.
      */
     internal suspend fun loadOtpEntries() {
+        val userEmail = auth.currentUser?.email.orEmpty()
+        val userId = auth.uid.orEmpty()
+
+        Log.d("Socketlink Authenticator", "Loading OTP entries for user: $userId : $userEmail")
+
+        onTagSelected(Utils.ALL)
+
+        val entries = repository.getAllOTPs(userEmail)
+
+        /** If no change do nothing */
+        if (_otpEntries.value != entries) {
+            _otpEntries.value = entries
+
+            withContext(Dispatchers.Default) {
+                updateUniqueTags()
+            }
+        }
+
+        Log.d("Socketlink Authenticator", "Loaded ${entries.size} entries from local repository")
         Log.d(
             "Socketlink Authenticator",
-            "Loading OTP entries from local storage for user: ${auth.uid} : ${auth.currentUser?.email}"
+            "Updated StateFlow with ${_otpEntries.value.size} entries"
         )
-        onTagSelected(Utils.ALL)
-        val entries = repository.getAllOTPs(auth.currentUser?.email ?: "")
-        Log.d("Socketlink Authenticator", "Loaded ${entries.size} OTP entries from repository")
-        _otpEntries.value = entries
-        Log.d("Socketlink Authenticator", "OTP entries loaded and updated in StateFlow : ${_otpEntries.value.size}")
-        updateUniqueTags()
 
         if (Utils.isCloudSyncEnabled(application.applicationContext)) {
             fetchAllFromCloudSafe(entries)
@@ -168,33 +161,37 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
      * Periodically updates OTP codes and progress.
      */
     private fun startTicker() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val lastPeriodMap = mutableMapOf<String, Long>()
+        viewModelScope.launch(Dispatchers.Default) {
+            val nextUpdateMap = mutableMapOf<String, Long>()
 
             while (true) {
                 val now = System.currentTimeMillis()
 
-                val updatedCodes = _otpEntries.value.map { otp ->
+                var hasChanged = false
+
+                val updatedEntries = _otpEntries.value.map { otp ->
                     val periodMillis = otp.period * 1000L
-                    val currentPeriod = now / periodMillis
-                    val lastPeriod = lastPeriodMap[otp.id] ?: -1L
+                    val nextUpdate = nextUpdateMap[otp.id] ?: 0L
 
-                    val newCode = if ((currentPeriod != lastPeriod) || otp.code.isEmpty()) {
-                        OtpUtils.generateOtp(otp.secret, otp.digits, otp.algorithm, otp.period)
+                    if (now >= nextUpdate || otp.code.isEmpty()) {
+                        nextUpdateMap[otp.id] = ((now / periodMillis) + 1) * periodMillis
+                        hasChanged = true
+                        val newCode =
+                            OtpUtils.generateOtp(otp.secret, otp.digits, otp.algorithm, otp.period)
+                        otp.copy(code = newCode)
                     } else {
-                        otp.code
+                        otp
                     }
-
-                    lastPeriodMap[otp.id] = currentPeriod
-                    otp.copy(code = newCode)
                 }
 
-                _otpEntries.value = updatedCodes
+                if (hasChanged) {
+                    _otpEntries.value = updatedEntries
+                }
 
-                val newProgressMap = updatedCodes.associate { otp ->
+                val newProgressMap = updatedEntries.associate { otp ->
                     val periodMillis = otp.period * 1000L
-                    val elapsedInPeriod = now % periodMillis
-                    val progress = 1f - elapsedInPeriod.toFloat() / periodMillis
+                    val elapsed = now % periodMillis
+                    val progress = 1f - elapsed.toFloat() / periodMillis
                     otp.id to progress.coerceIn(0f, 1f)
                 }
 
@@ -219,27 +216,28 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addSecrets(secrets: List<OtpEntry>) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val newEntries = secrets.map { secret ->
-                secret.copy(
-                    code = OtpUtils.generateOtp(
-                        secret.secret,
-                        secret.digits,
-                        secret.algorithm,
-                        secret.period
+        viewModelScope.launch {
+            withContext(Dispatchers.Default) {
+                val newEntries = secrets.map { secret ->
+                    secret.copy(
+                        code = OtpUtils.generateOtp(
+                            secret.secret,
+                            secret.digits,
+                            secret.algorithm,
+                            secret.period
+                        )
                     )
-                )
+                }
+
+                _otpEntries.value = _otpEntries.value + newEntries
+                updateUniqueTags()
             }
 
-            _otpEntries.value = _otpEntries.value + newEntries
-            updateUniqueTags()
-        }
-
-        addOtp(secrets)
-
-        viewModelScope.launch(Dispatchers.IO) {
-            if (Utils.isCloudSyncEnabled(application.applicationContext)) {
-                uploadUpdatedOrNewOTPs(secrets)
+            withContext(Dispatchers.Default) {
+                addOtp(secrets)
+                if (Utils.isCloudSyncEnabled(application.applicationContext)) {
+                    uploadUpdatedOrNewOTPs(secrets)
+                }
             }
         }
     }
@@ -275,7 +273,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
      * It updates local entries if the cloud has newer data and uploads local entries missing in the cloud.
      * This function runs safely inside a coroutine with proper error handling and sync state management.
      */
-    suspend fun fetchAllFromCloudSafe(localEntries : List<OtpEntry> = _otpEntries.value) {
+    suspend fun fetchAllFromCloudSafe(localEntries: List<OtpEntry> = _otpEntries.value) {
         /** Abort if user is not authenticated */
         if (auth.currentUser == null) {
             Log.w("FirebaseSync", "Cannot fetch OTPs, user is not authenticated")
@@ -339,7 +337,10 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
             /** Update the StateFlow and persist merged entries locally */
             _otpEntries.value = merged
             addOtp(updatedOrNewFromCloud)
-            updateUniqueTags()
+
+            withContext(Dispatchers.IO) {
+                updateUniqueTags()
+            }
 
             /** Log sync completion */
             Log.d(
@@ -382,9 +383,18 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
             otpDoc.set(data, SetOptions.merge())
         }
 
-        Tasks.whenAllComplete(tasks).addOnCompleteListener {
+        Tasks.whenAllComplete(tasks).addOnCompleteListener { allTasks ->
             stopSyncing()
-            Log.d("FirebaseSync", "All OTP uploads completed")
+
+            val failedTasks = allTasks.result?.filter { !it.isSuccessful } ?: emptyList()
+            if (failedTasks.isEmpty()) {
+                Log.d("FirebaseSync", "All OTP uploads completed successfully")
+            } else {
+                Log.e("FirebaseSync", "Some OTP uploads failed: ${failedTasks.size} failures")
+                failedTasks.forEach { task ->
+                    Log.e("FirebaseSync", "Failure: ${task.exception}")
+                }
+            }
         }
     }
 
@@ -396,26 +406,32 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
 
         startSyncing()
 
-        val otpDoc = db.collection("users").document(auth.uid.toString()).collection("OTPs").document(otpId)
+        val otpDoc =
+            db.collection("users").document(auth.uid.toString()).collection("OTPs").document(otpId)
         otpDoc.delete().addOnSuccessListener {
             Log.d("FirebaseSync", "Deleted OTP $otpId successfully")
         }.addOnFailureListener { e ->
             Log.e("FirebaseSync", "Failed to delete OTP $otpId", e)
+        }.addOnCompleteListener {
+            stopSyncing()
         }
-
-        stopSyncing()
     }
 
     /**
      * Deletes the given OTP and updates storage.
      */
     fun deleteSecret(otpToDelete: OtpEntry) {
-        _otpEntries.value = _otpEntries.value.filterNot { it.id == otpToDelete.id }
-        deleteOtp(otpToDelete)
+        viewModelScope.launch {
+            withContext(Dispatchers.Default) {
+                _otpEntries.value = _otpEntries.value.filterNot { it.id == otpToDelete.id }
+                updateUniqueTags()
+            }
 
-        viewModelScope.launch(Dispatchers.IO) {
-            if (Utils.isCloudSyncEnabled(application.applicationContext)) {
-                deleteOtpFromFirebase(otpToDelete.id)
+            withContext(Dispatchers.IO) {
+                deleteOtp(otpToDelete)
+                if (Utils.isCloudSyncEnabled(application.applicationContext)) {
+                    deleteOtpFromFirebase(otpToDelete.id)
+                }
             }
         }
     }

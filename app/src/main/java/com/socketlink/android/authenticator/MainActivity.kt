@@ -511,7 +511,7 @@ class MainActivity : AppCompatActivity() {
                                                         digits = obj["d"].AsInt32(),
                                                         email = otpViewModel.auth.currentUser?.email
                                                             ?: "",
-                                                        tag = obj["g"].AsString() ?: Utils.ALL,
+//                                                        tag = obj["g"].AsString() ?: Utils.ALL,
                                                     )
 
                                                     list.add(otpEntry)
@@ -2021,11 +2021,10 @@ fun SelectOtpForExportScreen(
     val selectedSet = remember { mutableStateListOf<OtpEntry>() }
     var loadedOTPs by remember { mutableStateOf(emptyList<OtpEntry>()) }
     var isLoading by remember { mutableStateOf(true) }
-    val otpEntries = otpViewModel.otpEntries.collectAsState(initial = emptyList()).value
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.Default) {
-            loadedOTPs = otpEntries
+            loadedOTPs = otpViewModel._otpEntries.value
         }
         isLoading = false
     }
