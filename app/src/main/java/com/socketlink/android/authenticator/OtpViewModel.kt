@@ -335,11 +335,15 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
             val merged = (localEntries + updatedOrNewFromCloud).distinctBy { it.id }
 
             /** Update the StateFlow and persist merged entries locally */
-            _otpEntries.value = merged
-            addOtp(updatedOrNewFromCloud)
+            if(merged.size != _otpEntries.value.size) {
+                Log.d("FirebaseSync", "Merging entries, size changed from ${_otpEntries.value.size} to ${merged.size}")
 
-            withContext(Dispatchers.IO) {
-                updateUniqueTags()
+                _otpEntries.value = merged
+                addOtp(updatedOrNewFromCloud)
+
+                withContext(Dispatchers.IO) {
+                    updateUniqueTags()
+                }
             }
 
             /** Log sync completion */
