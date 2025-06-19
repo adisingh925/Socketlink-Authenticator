@@ -511,7 +511,7 @@ class MainActivity : AppCompatActivity() {
                                                         digits = obj["d"].AsInt32(),
                                                         email = otpViewModel.auth.currentUser?.email
                                                             ?: "",
-//                                                        tag = obj["g"].AsString() ?: Utils.ALL,
+                                                        tag = obj["g"].AsString() ?: Utils.ALL,
                                                     )
 
                                                     list.add(otpEntry)
