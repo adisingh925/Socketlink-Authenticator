@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     id("com.google.gms.google-services")
     id("com.google.devtools.ksp") version "2.1.21-2.0.1"
+    id("com.google.firebase.crashlytics")
 }
 
 android {
@@ -14,7 +15,7 @@ android {
         applicationId = "com.socketlink.android.authenticator"
         minSdk = 24
         targetSdk = 35
-        versionCode = 21
+        versionCode = 22
         versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -96,4 +97,5 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     ksp(libs.androidx.room.compiler)
     annotationProcessor(libs.androidx.room.compiler)
+    implementation(libs.firebase.crashlytics)
 }
