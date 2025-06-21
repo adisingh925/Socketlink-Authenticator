@@ -67,6 +67,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: OtpRepository = OtpRepository(application)
 
     private val authStateListener = FirebaseAuth.AuthStateListener {
+        Log.d("Socketlink Authenticator", "Auth state changed: ${it.currentUser?.email ?: "No user"}")
         handleAuthStateChange()
     }
 

@@ -91,16 +91,12 @@ import androidx.compose.material.FractionalThreshold
 import androidx.compose.material.SwipeToDismiss
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Feedback
@@ -267,9 +263,6 @@ class MainActivity : AppCompatActivity() {
             SocketlinkAuthenticatorTheme {
                 /** NavController for handling screen navigation */
                 val navController = rememberNavController()
-
-                /** OTP entries collected from the ViewModel */
-                val otpEntries by otpViewModel.otpEntries.collectAsState()
 
                 /** Progress map for each OTP entry (e.g., countdown animation progress) */
                 val progressMap by otpViewModel.progressMap.collectAsState()
@@ -1227,8 +1220,6 @@ fun OtpScreen(
 
     val otpEntries by otpViewModel.otpEntries.collectAsState(initial = emptyList())
 
-    val unfilteredEntries by otpViewModel._otpEntries.collectAsState(initial = emptyList())
-
     /**
      * Handle camera permission result and navigate to the scanner screen
      * only when permission is granted and the button was clicked.
@@ -1242,9 +1233,9 @@ fun OtpScreen(
 
     /** Filter OTP entries based on search query using derivedStateOf to optimize recompositions */
     val filteredEntries = if (query.isBlank()) {
-        unfilteredEntries
+        otpEntries
     } else {
-        unfilteredEntries.filter {
+        otpEntries.filter {
             it.codeName.contains(query, ignoreCase = true)
         }
     }
@@ -1424,8 +1415,7 @@ fun OtpScreen(
                                         auth.signOut()
 
                                         try {
-                                            val clearRequest =
-                                                androidx.credentials.ClearCredentialStateRequest()
+                                            val clearRequest = androidx.credentials.ClearCredentialStateRequest()
                                             credentialManager.clearCredentialState(clearRequest)
                                             Log.d(
                                                 "SignOut",
