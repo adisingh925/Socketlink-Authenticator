@@ -108,6 +108,7 @@ import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
@@ -416,7 +417,7 @@ class MainActivity : AppCompatActivity() {
                          */
                         composable("add") {
                             AddOtpScreen(
-                                onAdd = { codeName, secret, digits, algorithm, period, tag ->
+                                onAdd = { codeName, secret, digits, algorithm, period, tag, otpType ->
                                     otpViewModel.addSecrets(
                                         listOf(
                                             OtpEntry(
@@ -427,7 +428,8 @@ class MainActivity : AppCompatActivity() {
                                                 digits = digits,
                                                 algorithm = algorithm,
                                                 period = period,
-                                                email = otpViewModel.auth.currentUser?.email ?: ""
+                                                email = otpViewModel.auth.currentUser?.email ?: "",
+                                                otpType = otpType
                                             )
                                         )
                                     )
@@ -469,15 +471,14 @@ class MainActivity : AppCompatActivity() {
 
                                 when (mode) {
                                     "scan" -> {
-                                        parseOtpAuthUri(code)?.let { otpSecret ->
+                                        parseOtpAuthUri(code, otpViewModel.auth.currentUser?.email ?: "")?.let { otpSecret ->
                                             otpViewModel.addSecrets(listOf(otpSecret))
                                         }
                                     }
 
                                     "import" -> {
                                         CoroutineScope(Dispatchers.IO).launch {
-                                            val compressedBytes =
-                                                Base64.decode(code, Base64.NO_WRAP)
+                                            val compressedBytes = Base64.decode(code, Base64.NO_WRAP)
 
                                             val inflater = Inflater()
                                             try {
@@ -492,8 +493,7 @@ class MainActivity : AppCompatActivity() {
                                                 }
 
                                                 val decompressedBytes = outputStream.toByteArray()
-                                                val cborArray =
-                                                    CBORObject.DecodeFromBytes(decompressedBytes)
+                                                val cborArray = CBORObject.DecodeFromBytes(decompressedBytes)
 
                                                 val list = mutableListOf<OtpEntry>()
                                                 for (i in 0 until cborArray.size()) {
@@ -1755,11 +1755,21 @@ fun OtpScreen(
                                         modifier = Modifier
                                             .animateItem()
                                     ) {
-                                        OtpCard(
-                                            otp = otp,
-                                            progress = progress,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
+                                        if(otp.otpType == Utils.HOTP) {
+                                            HotpCard(
+                                                otp = otp,
+                                                onGenerateClick = {
+                                                    otpViewModel.generateHOTPCode(otp)
+                                                },
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        } else {
+                                            OtpCard(
+                                                otp = otp,
+                                                progress = progress,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1833,6 +1843,131 @@ fun OtpScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HotpCard(
+    otp: OtpEntry,
+    onGenerateClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.surface
+) {
+    val context = LocalContext.current
+    val clipboardManager: ClipboardManager = LocalClipboardManager.current
+
+    val codeName = remember(otp.codeName) {
+        otp.codeName.ifBlank { "Unknown Issuer" }
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 16.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = color
+        ),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = LocalIndication.current,
+                    onClick = {
+                        val codeWithoutSpaces = otp.code.replace(" ", "")
+                        clipboardManager.setText(AnnotatedString(codeWithoutSpaces))
+                        Toast.makeText(context, "Code copied to clipboard", Toast.LENGTH_SHORT)
+                            .show()
+                    }
+                )
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = codeName,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = otp.algorithm.uppercase(),
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Medium
+                        ),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            val fontSize = MaterialTheme.typography.headlineMedium.fontSize * 1.2f
+            val code = otp.code
+            val splitIndex = code.length / 2
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = code.substring(0, splitIndex),
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = fontSize
+                        ),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    Text(
+                        text = code.substring(splitIndex),
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = fontSize
+                        ),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                IconButton(
+                    onClick = onGenerateClick
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Generate new HOTP",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2512,7 +2647,7 @@ fun TransferCodesScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddOtpScreen(
-    onAdd: (codeName: String, secret: String, digits: Int, algorithm: String, period: Int, tag: String) -> Unit,
+    onAdd: (codeName: String, secret: String, digits: Int, algorithm: String, period: Int, tag: String, otpType: Int) -> Unit,
     onCancel: () -> Unit,
     initialTags: List<String> = Utils.defaultTags // Pass existing tags from outside, e.g., from ViewModel
 ) {
@@ -2521,6 +2656,7 @@ fun AddOtpScreen(
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
     var digits by rememberSaveable { mutableStateOf("6") }
     var algorithm by rememberSaveable { mutableStateOf("SHA1") }
+    var otpType by rememberSaveable { mutableStateOf("Time Based") }
     var period by rememberSaveable { mutableStateOf("30") }
 
     var tags by remember { mutableStateOf(initialTags) }
@@ -2637,6 +2773,53 @@ fun AddOtpScreen(
                 )
             )
 
+            var otpTypeExpanded by remember { mutableStateOf(false) }
+
+            ExposedDropdownMenuBox(
+                expanded = otpTypeExpanded,
+                onExpandedChange = { otpTypeExpanded = !otpTypeExpanded }
+            ) {
+                OutlinedTextField(
+                    readOnly = true,
+                    value = otpType,
+                    shape = RoundedCornerShape(12.dp),
+                    onValueChange = {},
+                    label = { Text("Type of key") },
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = otpTypeExpanded)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(
+                            type = MenuAnchorType.PrimaryNotEditable,
+                            enabled = true
+                        ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                            alpha = 0.1f
+                        ),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                            alpha = 0.05f
+                        )
+                    )
+                )
+
+                ExposedDropdownMenu(
+                    expanded = otpTypeExpanded,
+                    onDismissRequest = { otpTypeExpanded = false }
+                ) {
+                    Utils.otpTypes.forEach { selectionOption ->
+                        DropdownMenuItem(
+                            text = { Text(selectionOption) },
+                            onClick = {
+                                otpType = selectionOption
+                                otpTypeExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -2745,7 +2928,6 @@ fun AddOtpScreen(
             AnimatedVisibility(visible = showAdvanced) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     var digitsExpanded by remember { mutableStateOf(false) }
-                    val digitOptions = listOf("6", "8")
 
                     ExposedDropdownMenuBox(
                         expanded = digitsExpanded,
@@ -2780,11 +2962,11 @@ fun AddOtpScreen(
                             expanded = digitsExpanded,
                             onDismissRequest = { digitsExpanded = false }
                         ) {
-                            digitOptions.forEach { selectionOption ->
+                            Utils.digitOptions.forEach { selectionOption ->
                                 DropdownMenuItem(
-                                    text = { Text(selectionOption) },
+                                    text = { Text(selectionOption.toString()) },
                                     onClick = {
-                                        digits = selectionOption
+                                        digits = selectionOption.toString()
                                         digitsExpanded = false
                                     }
                                 )
@@ -2792,7 +2974,6 @@ fun AddOtpScreen(
                         }
                     }
 
-                    val algorithmOptions = listOf("SHA1", "SHA256", "SHA512")
                     var algorithmExpanded by remember { mutableStateOf(false) }
 
                     ExposedDropdownMenuBox(
@@ -2828,7 +3009,7 @@ fun AddOtpScreen(
                             expanded = algorithmExpanded,
                             onDismissRequest = { algorithmExpanded = false }
                         ) {
-                            algorithmOptions.forEach { selectionOption ->
+                            Utils.algorithmOptions.forEach { selectionOption ->
                                 DropdownMenuItem(
                                     text = { Text(selectionOption) },
                                     onClick = {
@@ -2840,7 +3021,6 @@ fun AddOtpScreen(
                         }
                     }
 
-                    val options = listOf(10, 20, 30, 45, 60, 90, 120)
                     var expanded by remember { mutableStateOf(false) }
 
                     ExposedDropdownMenuBox(
@@ -2866,7 +3046,7 @@ fun AddOtpScreen(
                             expanded = expanded,
                             onDismissRequest = { expanded = false }
                         ) {
-                            options.forEach { option ->
+                            Utils.totpTimeIntervals.forEach { option ->
                                 DropdownMenuItem(
                                     text = { Text("$option seconds") },
                                     onClick = {
@@ -2894,7 +3074,8 @@ fun AddOtpScreen(
                                 digits.toInt(),
                                 algorithm.trim(),
                                 period.toInt(),
-                                selectedTag
+                                selectedTag,
+                                if (otpType == "Time Based") Utils.TOTP else Utils.HOTP
                             )
                             focusManager.clearFocus()
                         }
@@ -3177,19 +3358,3 @@ fun ScannerOverlayWithRoundedCorners(
         )
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

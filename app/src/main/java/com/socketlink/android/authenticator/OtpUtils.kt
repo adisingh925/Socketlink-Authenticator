@@ -40,6 +40,39 @@ object OtpUtils {
         }
     }
 
+    fun generateHotp(
+        secret: String,
+        counter: Long,
+        digits: Int = 6,
+        algorithm: String = "SHA1"
+    ): String {
+        return try {
+            val secretBytes = Base32().decode(secret)
+
+            val data = ByteBuffer.allocate(8).putLong(counter).array()
+
+            val algo = when (algorithm.uppercase()) {
+                "SHA256" -> "HmacSHA256"
+                "SHA512" -> "HmacSHA512"
+                else -> "HmacSHA1"
+            }
+
+            val mac = Mac.getInstance(algo)
+            mac.init(SecretKeySpec(secretBytes, algo))
+            val hash = mac.doFinal(data)
+
+            val offset = hash.last().toInt() and 0x0F
+            val binary = ((hash[offset].toInt() and 0x7F) shl 24) or
+                    ((hash[offset + 1].toInt() and 0xFF) shl 16) or
+                    ((hash[offset + 2].toInt() and 0xFF) shl 8) or
+                    (hash[offset + 3].toInt() and 0xFF)
+
+            (binary % 10.0.pow(digits).toInt()).toString().padStart(digits, '0')
+        } catch (e: Exception) {
+            "Invalid Secret"
+        }
+    }
+
     /**
      * Parses an OTP Auth URI and returns a populated [OtpEntry] object.
      *
@@ -49,7 +82,7 @@ object OtpUtils {
      * @param uriString The raw URI string from a scanned QR code.
      * @return A valid [OtpEntry] object if the URI is correctly formatted, or null otherwise.
      */
-    fun parseOtpAuthUri(uriString: String): OtpEntry? {
+    fun parseOtpAuthUri(uriString: String, email : String): OtpEntry? {
         return try {
             val uri = uriString.toUri()
 
@@ -58,7 +91,11 @@ object OtpUtils {
 
             /** Ensure the URI is for TOTP (Time-based One-Time Passwords) */
             val type = uri.host ?: return null
-            if (type != "totp") return null
+            val otpType = when (type.lowercase()) {
+                "totp" -> Utils.TOTP
+                "hotp" -> Utils.HOTP
+                else -> return null
+            }
 
             /** Extract the label path: usually "issuer:accountName" or just "accountName" */
             val path = uri.path ?: return null
@@ -75,9 +112,16 @@ object OtpUtils {
             /** Extract query parameters */
             val secret = uri.getQueryParameter("secret") ?: return null
             val issuer = uri.getQueryParameter("issuer") ?: issuerFromLabel
-            val digits = uri.getQueryParameter("digits")?.toIntOrNull() ?: 6
-            val period = uri.getQueryParameter("period")?.toIntOrNull() ?: 30
-            val algorithm = uri.getQueryParameter("algorithm") ?: "SHA1"
+            val digits = uri.getQueryParameter("digits")?.toIntOrNull()?.takeIf {
+                it in Utils.digitOptions
+            } ?: 6
+            val period = uri.getQueryParameter("period")?.toIntOrNull()?.takeIf {
+                it in Utils.totpTimeIntervals
+            } ?: 30
+            val counter = uri.getQueryParameter("counter")?.toLongOrNull() ?: 0L
+            val algorithm = uri.getQueryParameter("algorithm")?.takeIf {
+                it.uppercase() in Utils.algorithmOptions
+            } ?: "SHA1"
 
             /** Create a single display name */
             val codeName = when {
@@ -90,12 +134,15 @@ object OtpUtils {
 
             /** Return the parsed OtpEntry object */
             OtpEntry(
+                otpType = otpType,
                 codeName = codeName,
                 secret = secret,
                 code = "", // Will be generated separately
                 digits = digits,
                 period = period,
-                algorithm = algorithm
+                counter = counter,
+                algorithm = algorithm,
+                email = email
             )
         } catch (e: Exception) {
             /** Return null on failure (invalid format, parsing error, etc.) */

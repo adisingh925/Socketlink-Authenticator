@@ -171,6 +171,10 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                 var hasChanged = false
 
                 val updatedEntries = _otpEntries.value.map { otp ->
+                    if(otp.otpType != Utils.TOTP) {
+                        return@map otp // Skip HOTP entries, they don't change dynamically
+                    }
+
                     val periodMillis = otp.period * 1000L
                     val nextUpdate = nextUpdateMap[otp.id] ?: 0L
 
@@ -190,6 +194,10 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val newProgressMap = updatedEntries.associate { otp ->
+                    if(otp.otpType != Utils.TOTP) {
+                        return@associate otp.id to 0f // Skip HOTP entries, they don't have progress
+                    }
+
                     val periodMillis = otp.period * 1000L
                     val elapsed = now % periodMillis
                     val progress = 1f - elapsed.toFloat() / periodMillis
@@ -206,7 +214,6 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Adds a new OTP entry and saves it securely.
      */
-
     private fun updateUniqueTags() {
         val uniqueTagsFromEntries = _otpEntries.value
             .mapNotNull { it.tag.takeIf { tag -> tag.isNotBlank() } }
@@ -377,6 +384,9 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
             val data = mapOf(
                 "id" to otp.id,
                 "email" to otp.email,
+                "otpType" to otp.otpType,
+                "counter" to otp.counter,
+                "code" to otp.code,
                 "codeName" to otp.codeName,
                 "tag" to otp.tag,
                 "secret" to otp.secret,
@@ -437,6 +447,42 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                 if (Utils.isCloudSyncEnabled(application.applicationContext)) {
                     deleteOtpFromFirebase(otpToDelete.id)
                 }
+            }
+        }
+    }
+
+    fun generateHOTPCode(otp: OtpEntry) {
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val newCounter = otp.counter + 1
+
+                val newCode = OtpUtils.generateHotp(
+                    secret = otp.secret,
+                    counter = newCounter,
+                    digits = otp.digits,
+                    algorithm = otp.algorithm
+                )
+
+                val updatedOtp = otp.copy(
+                    code = newCode,
+                    counter = newCounter
+                )
+
+                // Update in the list
+                _otpEntries.update { list ->
+                    list.map { if (it.id == otp.id) updatedOtp else it }
+                }
+
+                // Save in local storage
+                withContext(Dispatchers.IO) {
+                    updateOtp(updatedOtp) // Your DAO or repository method
+
+                    if (Utils.isCloudSyncEnabled(application.applicationContext)) {
+                        uploadUpdatedOrNewOTPs(listOf(updatedOtp)) // Firebase update
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }

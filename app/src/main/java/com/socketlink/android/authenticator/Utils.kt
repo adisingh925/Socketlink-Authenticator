@@ -21,6 +21,17 @@ object Utils {
         ALL
     )
 
+    const val TOTP = 1
+    const val HOTP = 2
+
+    val totpTimeIntervals = listOf(10, 20, 30, 45, 60, 90, 120)
+    val algorithmOptions = listOf("SHA1", "SHA256", "SHA512")
+    val digitOptions = listOf(6, 8)
+    val otpTypes = listOf(
+        "Time Based",
+        "Counter Based"
+    )
+
     /** Get whether app lock is enabled */
     fun isAppLockEnabled(context: Context): Boolean {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)

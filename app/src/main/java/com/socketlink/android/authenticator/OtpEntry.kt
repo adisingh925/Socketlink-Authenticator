@@ -11,6 +11,12 @@ data class OtpEntry(
     @SerializedName("id")
     val id: String = UUID.randomUUID().toString(),
 
+    @SerializedName("otpType")
+    val otpType : Int = Utils.TOTP,
+
+    @SerializedName("counter")
+    val counter: Long = 0L,
+
     @SerializedName("email")
     val email: String = "",
 
