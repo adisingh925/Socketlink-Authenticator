@@ -504,15 +504,18 @@ class MainActivity : AppCompatActivity() {
                                                         algorithm = obj["t"].AsString(),
                                                         period = obj["p"].AsInt32(),
                                                         digits = obj["d"].AsInt32(),
-                                                        email = otpViewModel.auth.currentUser?.email
-                                                            ?: "",
+                                                        email = otpViewModel.auth.currentUser?.email ?: "",
                                                         tag = obj["g"].AsString() ?: Utils.ALL,
+                                                        otpType = if (obj["o"].AsInt32() == 1) Utils.TOTP else Utils.HOTP,
+                                                        code = obj["c"].AsString()
                                                     )
 
                                                     list.add(otpEntry)
                                                 }
 
                                                 otpViewModel.addSecrets(list)
+                                            } catch (e : Exception) {
+                                                Log.d("ImportError", "Failed to import OTPs: ${e.localizedMessage}")
                                             } finally {
                                                 inflater.end()
                                             }
@@ -2101,6 +2104,8 @@ private fun encodeEntriesToBase64(entries: List<OtpEntry>): String {
         obj.Add("p", it.period)
         obj.Add("d", it.digits)
         obj.Add("g", it.tag)
+        obj.Add("o", it.otpType)
+        obj.Add("c", it.code)
         cborArray.Add(obj)
     }
 

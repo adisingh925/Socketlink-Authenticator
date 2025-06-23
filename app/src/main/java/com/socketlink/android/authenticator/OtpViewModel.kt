@@ -227,6 +227,10 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             withContext(Dispatchers.Default) {
                 val newEntries = secrets.map { secret ->
+                    if(secret.otpType != Utils.TOTP) {
+                        return@map secret // Skip HOTP entries, they don't change dynamically
+                    }
+
                     secret.copy(
                         code = OtpUtils.generateOtp(
                             secret.secret,
